@@ -28,6 +28,11 @@ Full OverCue-equivalent Pro Tools sampler capture in Swift (direct + multichanne
 ## Not verified
 
 - Remaining manual PT test matrix (multichannel, consolidate fallback, pre-25, consolidate timeout, frontmost gating)
+- Edit-range capture inside a long clip (2026-06-10 fix; user-reported failure)
+
+## Changes (2026-06-10)
+
+- `ProToolsCaptureService.resolveSourceFromSelection`: sole-segment gate, no full-clip fallback when edit range active, PT 25+ consolidate when direct resolve nil (OverCue parity)
 - First-time helper build duration / CMake on fresh clone
 - Accessibility consolidate fallback with real PT session
 

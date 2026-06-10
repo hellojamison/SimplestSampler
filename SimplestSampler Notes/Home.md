@@ -10,7 +10,7 @@ Start here for operational memory. Repo: [github.com/hellojamison/SimplestSample
 - **Blockers:** None in repo
 - **UI:** OverCue-aligned spacing; dynamic active slots (4–16, + Add Slot); Stored tab Finder reveal; Appearance System/Light/Dark in Settings (⌘,)
 - **Notes:** Spec-aligned vault; validate with `python3 scripts/validate_notes.py`
-- **Next:** Live visual review of UI; remaining PT test matrix; shortcut conflict detection (deferred)
+- **Next:** Re-test edit-range capture in long clips (2026-06-10 fix); remaining PT test matrix; shortcut conflict detection (deferred)
 - **Reference (read-only):** `/Users/jamisonrabbe/Projects/OverCue` sampler + `main.js` capture sections
 
 ## Quick links

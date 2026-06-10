@@ -21,12 +21,29 @@ struct SlotRowView: View {
         return viewModel.audioPlayback.isPlaying && viewModel.audioPlayback.playingCaptureId == capture.id
     }
 
+    private var playbackProgress: CGFloat {
+        guard isPlaying else { return 0 }
+        return CGFloat(viewModel.audioPlayback.playbackProgress)
+    }
+
     private var primaryText: Color {
         isSelected ? theme.slotSelectedText : theme.text
     }
 
     private var secondaryText: Color {
         isSelected ? theme.slotSelectedText.opacity(0.72) : theme.muted
+    }
+
+    private var nameBinding: Binding<String> {
+        Binding(
+            get: {
+                guard nameFocused else {
+                    return capture?.slotLabel ?? ""
+                }
+                return draftName
+            },
+            set: { draftName = $0 }
+        )
     }
 
     var body: some View {
@@ -43,7 +60,7 @@ struct SlotRowView: View {
                 HStack(spacing: SamplerTheme.Layout.metaNameDurationGap) {
                     TextField(
                         isStored ? "Stored Sample" : "Empty Slot",
-                        text: $draftName
+                        text: nameBinding
                     )
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .semibold))
@@ -60,11 +77,7 @@ struct SlotRowView: View {
                         }
                     }
                     .onChange(of: capture?.id) { _ in
-                        if !nameFocused {
-                            draftName = capture?.slotLabel ?? ""
-                        }
-                    }
-                    .onAppear {
+                        guard !nameFocused else { return }
                         draftName = capture?.slotLabel ?? ""
                     }
 
@@ -164,15 +177,26 @@ struct SlotRowView: View {
     }
 
     private var rowBackground: some View {
-        Group {
-            if isSelected {
-                theme.slotSelected
-            } else if isPlaying {
-                theme.slotPlaying
-            } else {
-                theme.slotBackground
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                rowBaseBackground
+                if playbackProgress > 0 {
+                    rowPlaybackProgressFill
+                        .frame(width: geometry.size.width * playbackProgress)
+                }
             }
         }
+    }
+
+    private var rowBaseBackground: Color {
+        isSelected ? theme.slotSelected : theme.slotBackground
+    }
+
+    private var rowPlaybackProgressFill: Color {
+        if isSelected {
+            return Color.white.opacity(0.16)
+        }
+        return theme.accentSoft.opacity(0.62)
     }
 
     private var borderColor: Color {
@@ -194,7 +218,10 @@ struct SlotRowView: View {
     }
 
     private func commitRename() {
-        guard let capture else { return }
+        guard let capture else {
+            draftName = ""
+            return
+        }
         let submitted = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasCustom = !submitted.isEmpty
         let nextName = hasCustom ? submitted : capture.defaultDisplayName

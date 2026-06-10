@@ -108,6 +108,8 @@ enum SamplerTheme {
         static let metaNameDurationGap: CGFloat = 5
         static let volumeValueWidth: CGFloat = 52
         static let volumeSliderGap: CGFloat = 7
+        static let volumeMeterHeight: CGFloat = 4
+        static let volumeMeterSpacing: CGFloat = 5
         static let actionMinHeight: CGFloat = 23
         static let actionPaddingH: CGFloat = 7
         static let shortcutPaddingH: CGFloat = 8

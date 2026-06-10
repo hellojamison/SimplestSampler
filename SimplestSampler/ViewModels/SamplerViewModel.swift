@@ -232,12 +232,17 @@ final class SamplerViewModel: ObservableObject {
         recentCaptures[index] = nil
         persistRecentCaptures()
 
-        if let removed, removed.id == loadedCaptureId {
-            audioPlayback.stop(updateStatus: false)
-            loadedCaptureId = ""
-            loadedCapture = nil
-            preferencesStore.sessionState.loadedCaptureId = ""
-            preferencesStore.saveSessionState()
+        if let removed {
+            if removed.id == loadedCaptureId {
+                audioPlayback.stop(updateStatus: false)
+                loadedCaptureId = ""
+                loadedCapture = nil
+                preferencesStore.sessionState.loadedCaptureId = ""
+                preferencesStore.saveSessionState()
+            }
+            if removed.id == selectedCaptureId, selectedCaptureSource == "recent" {
+                selectedCaptureId = ""
+            }
         }
         reconcileSelection()
         refreshStatusIfIdle()

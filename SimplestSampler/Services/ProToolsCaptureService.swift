@@ -37,8 +37,11 @@ actor ProToolsCaptureService {
             onStatus?("Reading Pro Tools selection...")
             if let directSource = try await resolveSourceFromSelection() {
                 source = directSource
-            } else {
+            } else if PTTimecodeMath.shouldAvoidConsolidateFallback(activeProtocol) {
                 throw directResolveFailedError(activeProtocol: activeProtocol)
+            } else {
+                onStatus?("Consolidating selection in Pro Tools...")
+                source = try await captureConsolidateFallback(onStatus: onStatus)
             }
         }
 
@@ -70,21 +73,21 @@ actor ProToolsCaptureService {
             }
         }
 
-        let selectedSegmentCandidate = bestSegmentCandidate(from: segments, sessionFps: sessionFps)
+        let soleSegmentCandidate = segments.count == 1
+            ? bestSegmentCandidate(from: segments, sessionFps: sessionFps)
+            : nil
 
         let selectedClip = try await helper.getSelectedClipFileOrNull()
         CaptureDebugLogger.log("resolve source selected clip", context: ["filePath": selectedClip?.filePath ?? ""])
 
         guard let selectedClip else {
-            return selectedSegmentCandidate
+            return soleSegmentCandidate
         }
 
         let timelineSelection = try? await helper.getTimelineSelection()
-        let clipSessionFps = resolvedSessionFps(
-            clipFps: selectedClip.sessionFps,
-            timelineFps: timelineSelection?.sessionFps,
-            fallbackFps: sessionFps
-        )
+        let clipSessionFps = selectedClip.sessionFps.flatMap { fps in
+            fps.isFinite && fps > 0 ? fps : nil
+        }
         let anchorTc = PTTimecodeMath.normalizeHelperTimecode(
             (timelineSelection?.inTime.isEmpty == false ? timelineSelection?.inTime : timelineSelection?.playStartMarkerTime) ?? ""
         )
@@ -121,7 +124,7 @@ actor ProToolsCaptureService {
         }()
 
         let fullClipCandidate: SamplerCaptureSource? = {
-            guard !selectedClip.filePath.isEmpty else { return nil }
+            guard !hasEditRange, !selectedClip.filePath.isEmpty else { return nil }
             return captureSource(
                 filePath: selectedClip.filePath,
                 fileName: selectedClip.fileName,
@@ -132,9 +135,9 @@ actor ProToolsCaptureService {
             )
         }()
 
-        if selectedSegmentCandidate != nil {
-            CaptureDebugLogger.log("resolve source prefer segment candidate")
-            return selectedSegmentCandidate
+        if soleSegmentCandidate != nil {
+            CaptureDebugLogger.log("resolve source prefer sole segment candidate")
+            return soleSegmentCandidate
         }
 
         if selectedClipCandidate != nil {
@@ -147,7 +150,15 @@ actor ProToolsCaptureService {
             return fullClipCandidate
         }
 
-        return selectedSegmentCandidate
+        if hasEditRange {
+            CaptureDebugLogger.log("resolve source edit range unresolved", context: [
+                "clipStartTime": selectedClip.clipStartTime,
+                "hasSrcStart": selectedClip.srcStartSeconds != nil,
+                "sessionFps": clipSessionFps.map { String($0) } ?? "nil"
+            ])
+        }
+
+        return nil
     }
 
     private func bestSegmentCandidate(from segments: [PTClipSegment], sessionFps: Double?) -> SamplerCaptureSource? {
@@ -169,13 +180,28 @@ actor ProToolsCaptureService {
         return nil
     }
 
-    private func resolvedSessionFps(clipFps: Double?, timelineFps: Double?, fallbackFps: Double?) -> Double? {
-        for candidate in [clipFps, timelineFps, fallbackFps] {
-            if let candidate, candidate.isFinite, candidate > 0 {
-                return candidate
-            }
-        }
-        return nil
+    private func captureConsolidateFallback(
+        onStatus: (@Sendable (String) -> Void)?
+    ) async throws -> SamplerCaptureSource {
+        let sessionPath = try await helper.getSessionPath()
+        let previousSelectedFile = try await helper.getSelectedClipFileOrNull()
+        let audioFileSnapshot = try? ConsolidateFallbackService.readSessionAudioFileSnapshot(sessionPath: sessionPath)
+
+        CaptureDebugLogger.log("consolidate fallback start", context: [
+            "sessionPath": sessionPath,
+            "previousFilePath": previousSelectedFile?.filePath ?? ""
+        ])
+
+        try await ConsolidateFallbackService.triggerConsolidateSelection(helper: helper)
+        try await Task.sleep(nanoseconds: UInt64(PTSLCaptureConstants.consolidateTriggerSettleSeconds * 1_000_000_000))
+
+        onStatus?("Waiting for consolidated clip...")
+        return try await ConsolidateFallbackService.waitForNewConsolidatedPtClipFile(
+            previousSelectedFile: previousSelectedFile,
+            sessionPath: sessionPath,
+            audioFileSnapshot: audioFileSnapshot,
+            allowAudioDirectoryFallback: true
+        )
     }
 
     private func directResolveFailedError(activeProtocol: String) -> NSError {

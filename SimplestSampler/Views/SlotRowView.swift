@@ -7,6 +7,7 @@ struct SlotRowView: View {
     let capture: SamplerCapture?
     let isStored: Bool
 
+    @Environment(\.samplerThemeColors) private var theme
     @State private var draftName = ""
     @FocusState private var nameFocused: Bool
 
@@ -20,24 +21,34 @@ struct SlotRowView: View {
         return viewModel.audioPlayback.isPlaying && viewModel.audioPlayback.playingCaptureId == capture.id
     }
 
+    private var primaryText: Color {
+        isSelected ? theme.slotSelectedText : theme.text
+    }
+
+    private var secondaryText: Color {
+        isSelected ? theme.slotSelectedText.opacity(0.72) : theme.muted
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: SamplerTheme.Layout.rowColumnGap) {
             Button(action: playAction) {
                 Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 28, height: 28)
+                    .font(.system(size: 9, weight: .bold))
+                    .frame(width: SamplerTheme.Layout.playButtonSize, height: SamplerTheme.Layout.playButtonSize)
             }
-            .buttonStyle(SlotPlayButtonStyle())
+            .buttonStyle(SlotPlayButtonStyle(isSelected: isSelected))
             .disabled(capture == nil)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: SamplerTheme.Layout.metaLineSpacing) {
+                HStack(spacing: SamplerTheme.Layout.metaNameDurationGap) {
                     TextField(
                         isStored ? "Stored Sample" : "Empty Slot",
                         text: $draftName
                     )
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(primaryText)
+                    .lineLimit(1)
                     .disabled(capture == nil)
                     .focused($nameFocused)
                     .onSubmit { commitRename() }
@@ -60,62 +71,85 @@ struct SlotRowView: View {
                     if let duration = capture?.formattedDuration {
                         Text(duration)
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundStyle(SamplerTheme.muted)
+                            .foregroundStyle(secondaryText)
+                            .fixedSize()
                     }
                 }
 
                 if let capture {
                     Text(capture.fileName)
                         .font(.system(size: 10))
-                        .foregroundStyle(SamplerTheme.muted)
+                        .foregroundStyle(secondaryText)
                         .lineLimit(1)
                 } else if isStored {
                     Text("Click Store on an active sample to keep it here.")
                         .font(.system(size: 10))
-                        .foregroundStyle(SamplerTheme.muted)
+                        .foregroundStyle(secondaryText)
                 }
             }
-
-            Spacer(minLength: 4)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 
             if !isStored {
-                HStack(spacing: 4) {
-                    shortcutButton(
-                        id: ShortcutDefinitions.captureShortcutID(for: index + 1),
-                        prefix: "Cap"
-                    )
+                HStack(spacing: SamplerTheme.Layout.actionGap) {
+                    if ShortcutDefinitions.hasShortcutSupport(forSlotNumber: index + 1) {
+                        ShortcutBindingButton(
+                            viewModel: viewModel,
+                            shortcutID: ShortcutDefinitions.captureShortcutID(for: index + 1),
+                            prefix: "Cap",
+                            compact: true
+                        )
+                    }
                     Button(capture?.saved == true ? "Stored" : "Store") {
                         viewModel.toggleStore(at: index)
                     }
-                    .buttonStyle(SlotActionButtonStyle(isAccent: capture?.saved == true))
+                    .buttonStyle(SlotActionButtonStyle(isAccent: capture?.saved == true, isSelected: isSelected))
                     .disabled(capture == nil)
 
                     Button("Delete") {
                         viewModel.deleteActiveSlot(at: index)
                     }
-                    .buttonStyle(SlotActionButtonStyle(isDestructive: true))
+                    .buttonStyle(SlotActionButtonStyle(isDestructive: true, isSelected: isSelected))
                     .disabled(capture == nil)
+                }
+                .fixedSize(horizontal: true, vertical: false)
 
-                    shortcutButton(
-                        id: ShortcutDefinitions.playShortcutID(for: index + 1),
-                        prefix: nil
+                if ShortcutDefinitions.hasShortcutSupport(forSlotNumber: index + 1) {
+                    ShortcutBindingButton(
+                        viewModel: viewModel,
+                        shortcutID: ShortcutDefinitions.playShortcutID(for: index + 1),
+                        compact: true,
+                        isTrigger: true
                     )
+                    .fixedSize(horizontal: true, vertical: false)
                 }
             } else if capture != nil {
-                Button("Delete") {
-                    if let id = capture?.id {
-                        viewModel.deleteStoredCapture(id: id)
+                HStack(spacing: SamplerTheme.Layout.actionGap) {
+                    Button("Finder") {
+                        if let id = capture?.id {
+                            viewModel.revealStoredCaptureInFinder(id: id)
+                        }
                     }
+                    .buttonStyle(SlotActionButtonStyle(isSelected: isSelected))
+                    .fixedSize(horizontal: true, vertical: false)
+
+                    Button("Delete") {
+                        if let id = capture?.id {
+                            viewModel.deleteStoredCapture(id: id)
+                        }
+                    }
+                    .buttonStyle(SlotActionButtonStyle(isDestructive: true, isSelected: isSelected))
+                    .fixedSize(horizontal: true, vertical: false)
                 }
-                .buttonStyle(SlotActionButtonStyle(isDestructive: true))
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, SamplerTheme.Layout.rowPaddingH)
+        .padding(.vertical, SamplerTheme.Layout.rowPaddingV)
+        .opacity(capture == nil && !isStored ? 0.72 : 1)
         .background(rowBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: SamplerTheme.Layout.rowCornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: SamplerTheme.Layout.rowCornerRadius, style: .continuous)
                 .stroke(borderColor, lineWidth: isSelected ? 1.5 : 1)
         )
         .contentShape(Rectangle())
@@ -132,17 +166,17 @@ struct SlotRowView: View {
     private var rowBackground: some View {
         Group {
             if isSelected {
-                SamplerTheme.slotSelected
+                theme.slotSelected
             } else if isPlaying {
-                SamplerTheme.accentSoft.opacity(0.55)
+                theme.slotPlaying
             } else {
-                SamplerTheme.slotBackground
+                theme.slotBackground
             }
         }
     }
 
     private var borderColor: Color {
-        isSelected ? SamplerTheme.accent : SamplerTheme.border
+        isSelected ? theme.accent : theme.border
     }
 
     private var dropTargetBinding: Binding<Bool> {
@@ -152,30 +186,6 @@ struct SlotRowView: View {
                 viewModel.dropTargetIndex = targeted ? index : (viewModel.dropTargetIndex == index ? -1 : viewModel.dropTargetIndex)
             }
         )
-    }
-
-    @ViewBuilder
-    private func shortcutButton(id: String, prefix: String?) -> some View {
-        let isCapturing = viewModel.capturingShortcutId == id
-        Button(action: {
-            if isCapturing {
-                viewModel.cancelShortcutCapture()
-            } else {
-                viewModel.beginShortcutCapture(shortcutID: id)
-            }
-        }) {
-            if let prefix {
-                HStack(spacing: 2) {
-                    Text(prefix).font(.system(size: 9, weight: .bold))
-                    Text(isCapturing ? "Press Shortcut" : viewModel.shortcutLabel(for: id))
-                        .font(.system(size: 9, weight: .medium))
-                }
-            } else {
-                Text(isCapturing ? "Press Shortcut" : viewModel.shortcutLabel(for: id))
-                    .font(.system(size: 9, weight: .medium))
-            }
-        }
-        .buttonStyle(SlotShortcutButtonStyle(isCapturing: isCapturing))
     }
 
     private func playAction() {
@@ -209,12 +219,23 @@ struct SlotRowView: View {
 }
 
 struct SlotPlayButtonStyle: ButtonStyle {
+    var isSelected = false
+    @Environment(\.samplerThemeColors) private var theme
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(.white)
+            .foregroundStyle(isSelected ? theme.slotSelectedText : theme.text)
             .background(
                 Circle()
-                    .fill(SamplerTheme.accent.opacity(configuration.isPressed ? 0.75 : 1.0))
+                    .fill(
+                        isSelected
+                            ? Color.white.opacity(configuration.isPressed ? 0.12 : 0.14)
+                            : (configuration.isPressed ? theme.playButtonFillPressed : theme.playButtonFill)
+                    )
+            )
+            .overlay(
+                Circle()
+                    .stroke(isSelected ? Color.white.opacity(0.18) : theme.border, lineWidth: 1)
             )
     }
 }
@@ -222,43 +243,67 @@ struct SlotPlayButtonStyle: ButtonStyle {
 struct SlotActionButtonStyle: ButtonStyle {
     var isDestructive = false
     var isAccent = false
+    var isSelected = false
+    @Environment(\.samplerThemeColors) private var theme
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 10, weight: .semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .foregroundStyle(isDestructive ? SamplerTheme.captureText : SamplerTheme.text)
+            .padding(.horizontal, SamplerTheme.Layout.actionPaddingH)
+            .frame(minHeight: SamplerTheme.Layout.actionMinHeight)
+            .foregroundStyle(actionForeground)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(
-                        isAccent
-                            ? SamplerTheme.accentSoft
-                            : Color.white.opacity(configuration.isPressed ? 0.65 : 0.9)
-                    )
+                Capsule(style: .continuous)
+                    .fill(actionBackground(configuration: configuration))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(SamplerTheme.border, lineWidth: 1)
+                Capsule(style: .continuous)
+                    .stroke(isSelected ? Color.white.opacity(0.18) : theme.border, lineWidth: 1)
             )
+    }
+
+    private var actionForeground: Color {
+        if isDestructive {
+            return isSelected ? theme.slotSelectedText : theme.captureText
+        }
+        return isSelected ? theme.slotSelectedText : theme.muted
+    }
+
+    private func actionBackground(configuration: Configuration) -> Color {
+        if isSelected {
+            return Color.white.opacity(configuration.isPressed ? 0.12 : 0.14)
+        }
+        if isAccent {
+            return theme.accentSoft
+        }
+        return configuration.isPressed
+            ? theme.buttonFillPressed
+            : theme.actionButtonFill
     }
 }
 
 struct SlotShortcutButtonStyle: ButtonStyle {
     var isCapturing: Bool
+    var isTrigger = false
+    @Environment(\.samplerThemeColors) private var theme
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .foregroundStyle(isCapturing ? SamplerTheme.captureText : SamplerTheme.text)
+            .padding(.horizontal, isTrigger ? SamplerTheme.Layout.shortcutTriggerPaddingH : SamplerTheme.Layout.shortcutPaddingH)
+            .frame(minWidth: isTrigger ? SamplerTheme.Layout.shortcutTriggerMinWidth : nil)
+            .frame(minHeight: SamplerTheme.Layout.actionMinHeight)
+            .foregroundStyle(isCapturing ? theme.captureText : theme.text)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isCapturing ? SamplerTheme.captureTop.opacity(0.35) : Color.white.opacity(0.85))
+                Capsule(style: .continuous)
+                    .fill(
+                        isCapturing
+                            ? theme.shortcutCapturingFill
+                            : (isTrigger ? theme.shortcutTriggerFill : theme.shortcutButtonFill)
+                    )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(SamplerTheme.border, lineWidth: 1)
+                Capsule(style: .continuous)
+                    .stroke(theme.border, lineWidth: 1)
             )
     }
 }

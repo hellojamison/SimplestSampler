@@ -45,9 +45,10 @@ enum AudioOutputDeviceService {
         }
     }
 
-    static func setOutputDevice(uid: String, on audioUnit: AudioUnit) {
-        guard !uid.isEmpty, var deviceID = lookupDeviceID(uid: uid) else { return }
-        AudioUnitSetProperty(
+    @discardableResult
+    static func setOutputDevice(uid: String, on audioUnit: AudioUnit) -> Bool {
+        guard !uid.isEmpty, var deviceID = lookupDeviceID(uid: uid) else { return false }
+        let status = AudioUnitSetProperty(
             audioUnit,
             kAudioOutputUnitProperty_CurrentDevice,
             kAudioUnitScope_Global,
@@ -55,6 +56,7 @@ enum AudioOutputDeviceService {
             &deviceID,
             UInt32(MemoryLayout<AudioDeviceID>.size)
         )
+        return status == noErr
     }
 
     private static func lookupDeviceID(uid: String) -> AudioDeviceID? {

@@ -92,13 +92,16 @@ struct SamplerSessionState: Codable, Equatable {
     var loadedCaptureId: String
     var activeTab: String
     var windowFrame: WindowFrame?
+    /// Visible active slot rows; nil in older saved sessions defaults to 4 on load.
+    var activeSlotCount: Int?
 
     static let empty = SamplerSessionState(
-        recentCaptures: Array(repeating: nil, count: SamplerConstants.maxActiveSlots),
+        recentCaptures: Array(repeating: nil, count: SamplerConstants.defaultActiveSlots),
         storedCaptures: [],
         loadedCaptureId: "",
         activeTab: "recent",
-        windowFrame: nil
+        windowFrame: nil,
+        activeSlotCount: SamplerConstants.defaultActiveSlots
     )
 }
 
@@ -110,13 +113,29 @@ struct WindowFrame: Codable, Equatable {
 }
 
 enum SamplerConstants {
-    static let maxActiveSlots = 4
+    static let defaultActiveSlots = 4
+    static let maxActiveSlots = 16
     static let defaultVolume = 80
     static let maxVolume = 140
     static let minWindowWidth: CGFloat = 360
     static let minWindowHeight: CGFloat = 340
     static let defaultWindowWidth: CGFloat = 520
     static let defaultWindowHeight: CGFloat = 430
+    static let slotRowStride: CGFloat = 42
+    static let addSlotControlHeight: CGFloat = 30
+
+    static var fixedWindowChromeHeight: CGFloat {
+        defaultWindowHeight - CGFloat(defaultActiveSlots) * slotRowStride
+    }
+
+    static func contentHeight(forActiveSlotCount count: Int, showsSlotControls: Bool) -> CGFloat {
+        let slots = max(defaultActiveSlots, count)
+        var height = fixedWindowChromeHeight + CGFloat(slots) * slotRowStride
+        if showsSlotControls {
+            height += addSlotControlHeight + 8
+        }
+        return max(minWindowHeight, height)
+    }
 
     static let supportedDropExtensions: Set<String> = [
         "wav", "aif", "aiff", "caf", "mp3", "m4a", "mp4", "aac", "ogg", "flac"

@@ -2,36 +2,37 @@ import SwiftUI
 
 struct VolumeControlView: View {
     @ObservedObject var viewModel: SamplerViewModel
+    @Environment(\.samplerThemeColors) private var theme
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: SamplerTheme.Layout.rowColumnGap) {
             Text("Volume")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(SamplerTheme.muted)
+                .foregroundStyle(theme.muted)
+                .frame(width: SamplerTheme.Layout.labelWidth, alignment: .leading)
 
-            Slider(
-                value: Binding(
-                    get: { Double(viewModel.volume) },
-                    set: { viewModel.setVolume(Int($0.rounded())) }
-                ),
-                in: 0...Double(SamplerConstants.maxVolume),
-                step: 1
-            )
-            .frame(maxWidth: 180)
+            HStack(spacing: SamplerTheme.Layout.volumeSliderGap) {
+                Slider(
+                    value: Binding(
+                        get: { Double(viewModel.volume) },
+                        set: { viewModel.setVolume(Int($0.rounded())) }
+                    ),
+                    in: 0...Double(SamplerConstants.maxVolume),
+                    step: 1
+                )
 
-            Text("\(viewModel.volume)%")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(SamplerTheme.text)
-                .frame(width: 40, alignment: .trailing)
+                Text(SamplerVolumeMath.formattedDecibels(forVolume: viewModel.volume))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(theme.text)
+                    .frame(width: SamplerTheme.Layout.volumeValueWidth, alignment: .trailing)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color.white.opacity(0.55))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(SamplerTheme.border, lineWidth: 1)
-        )
+        .padding(.horizontal, SamplerTheme.Layout.chipPaddingH)
+        .padding(.vertical, SamplerTheme.Layout.chipPaddingV)
+        .frame(minHeight: SamplerTheme.Layout.chipMinHeight)
+        .samplerChipSurface(cornerRadius: SamplerTheme.Layout.volumeCornerRadius)
         .contentShape(Rectangle())
         .gesture(
             TapGesture().modifiers(.option).onEnded {

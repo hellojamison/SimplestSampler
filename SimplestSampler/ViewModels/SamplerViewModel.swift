@@ -17,8 +17,22 @@ final class SamplerViewModel: ObservableObject {
     @Published var capturingShortcutId = ""
     @Published var dropTargetIndex = -1
     @Published var isCaptureInProgress = false
+    @Published private(set) var activeSlotCount: Int
+    @Published private(set) var volume: Int
     /// 0-based slot index targeted by the last capture shortcut; reserved for Phase 2 PT capture.
     @Published private(set) var targetSlotIndex: Int?
+
+    var canAddActiveSlot: Bool {
+        activeSlotCount < SamplerConstants.maxActiveSlots
+    }
+
+    var canRemoveActiveSlot: Bool {
+        activeSlotCount > SamplerConstants.defaultActiveSlots
+    }
+
+    var showsSlotCountControls: Bool {
+        activeTab == "recent" && (canAddActiveSlot || canRemoveActiveSlot)
+    }
 
     let preferencesStore: PreferencesStore
     let audioPlayback: AudioPlaybackService
@@ -26,22 +40,26 @@ final class SamplerViewModel: ObservableObject {
 
     private var nextRecentSequence = 1
     private var loadedCapture: SamplerCapture?
-
-    var volume: Int {
-        preferencesStore.preferences.samplerVolume
-    }
+    private var captureTask: Task<Void, Never>?
 
     var outputDeviceUID: String {
         preferencesStore.preferences.samplerAudioOutputDeviceUID
+    }
+
+    var themeMode: SamplerThemeMode {
+        preferencesStore.preferences.themeMode
     }
 
     init(preferencesStore: PreferencesStore, audioPlayback: AudioPlaybackService) {
         self.preferencesStore = preferencesStore
         self.audioPlayback = audioPlayback
         recentCaptures = preferencesStore.sessionState.recentCaptures
+        activeSlotCount = preferencesStore.sessionState.activeSlotCount ?? SamplerConstants.defaultActiveSlots
+        volume = preferencesStore.preferences.samplerVolume
         storedCaptures = []
         loadedCaptureId = preferencesStore.sessionState.loadedCaptureId
         activeTab = preferencesStore.sessionState.activeTab
+        syncRecentCapturesToActiveSlotCount()
 
         audioPlayback.onPlaybackFinished = { [weak self] in
             Task { @MainActor in
@@ -60,6 +78,16 @@ final class SamplerViewModel: ObservableObject {
             }
         }
         registerShortcuts()
+        applyThemeAppearance()
+    }
+
+    func setThemeMode(_ mode: SamplerThemeMode) {
+        preferencesStore.setThemeMode(mode)
+        applyThemeAppearance()
+    }
+
+    func applyThemeAppearance() {
+        themeMode.applyAppAppearance()
     }
 
     func refreshOutputDevices() {
@@ -78,8 +106,10 @@ final class SamplerViewModel: ObservableObject {
     }
 
     func setVolume(_ value: Int) {
-        preferencesStore.setVolume(value)
-        audioPlayback.setVolume(value)
+        let clamped = max(0, min(SamplerConstants.maxVolume, value))
+        volume = clamped
+        preferencesStore.setVolume(clamped)
+        audioPlayback.setVolume(clamped)
     }
 
     func resetVolumeToDefault() {
@@ -105,10 +135,10 @@ final class SamplerViewModel: ObservableObject {
     func captureButtonTapped(slot: Int? = nil) {
         if let slot {
             targetSlotIndex = slot - 1
-            setStatus("Pro Tools capture for slot \(slot) is coming in Phase 2.", isError: false)
         } else {
-            setStatus("Pro Tools capture is coming in Phase 2.", isError: false)
+            targetSlotIndex = nil
         }
+        performCapture(targetSlotIndex: targetSlotIndex)
     }
 
     func playToggleTapped() {
@@ -153,8 +183,42 @@ final class SamplerViewModel: ObservableObject {
         }
     }
 
+    func addActiveSlot() {
+        guard canAddActiveSlot else { return }
+        activeSlotCount += 1
+        recentCaptures.append(nil)
+        persistSessionState()
+        resizeWindowForActiveSlots()
+        setStatus("Added slot \(activeSlotCount).")
+    }
+
+    func removeActiveSlot() {
+        guard canRemoveActiveSlot else { return }
+
+        let lastIndex = activeSlotCount - 1
+        if let removed = recentCaptures[lastIndex] {
+            if removed.id == loadedCaptureId {
+                audioPlayback.stop(updateStatus: false)
+                loadedCaptureId = ""
+                loadedCapture = nil
+                preferencesStore.sessionState.loadedCaptureId = ""
+            }
+            if removed.id == selectedCaptureId, selectedCaptureSource == "recent" {
+                selectedCaptureId = ""
+            }
+        }
+
+        recentCaptures.removeLast()
+        activeSlotCount -= 1
+        persistSessionState()
+        resizeWindowForActiveSlots()
+        reconcileSelection()
+        refreshStatusIfIdle()
+        setStatus("Removed slot. \(activeSlotCount) active slots.")
+    }
+
     func playSlot(at index: Int) {
-        guard index >= 0, index < SamplerConstants.maxActiveSlots, let capture = recentCaptures[index] else {
+        guard index >= 0, index < activeSlotCount, let capture = recentCaptures[index] else {
             setStatus("No sampler file is stored in slot \(index + 1).", isError: true)
             return
         }
@@ -201,6 +265,22 @@ final class SamplerViewModel: ObservableObject {
         } catch {
             setStatus(error.localizedDescription, isError: true)
         }
+    }
+
+    func revealStoredCaptureInFinder(id: String) {
+        guard let capture = storedCaptures.first(where: { $0.id == id }) else {
+            setStatus("Stored sample was not found.", isError: true)
+            return
+        }
+
+        let fileURL = URL(fileURLWithPath: capture.filePath)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            setStatus("The stored audio file is missing on disk.", isError: true)
+            return
+        }
+
+        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+        setStatus("Revealed \(capture.slotLabel) in Finder.")
     }
 
     func deleteStoredCapture(id: String) {
@@ -252,7 +332,7 @@ final class SamplerViewModel: ObservableObject {
             return
         }
 
-        guard slotIndex >= 0, slotIndex < SamplerConstants.maxActiveSlots else { return }
+        guard slotIndex >= 0, slotIndex < activeSlotCount else { return }
 
         let fileName = URL(fileURLWithPath: path).lastPathComponent
         let baseName = (fileName as NSString).deletingPathExtension
@@ -329,6 +409,7 @@ final class SamplerViewModel: ObservableObject {
 
     func handleGlobalShortcut(_ shortcutID: String) {
         if shortcutID.hasPrefix("samplerCaptureSlot"), let slot = ShortcutDefinitions.slotNumber(for: shortcutID) {
+            guard FrontmostAppService.shouldAllowGlobalCaptureShortcut() else { return }
             captureButtonTapped(slot: slot)
             return
         }
@@ -351,11 +432,58 @@ final class SamplerViewModel: ObservableObject {
 
     func shortcutLabel(for shortcutID: String) -> String {
         let accelerator = preferencesStore.shortcutAccelerator(for: shortcutID)
+        if accelerator.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "None"
+        }
         return ParsedShortcut.parse(accelerator)?.formattedLabel() ?? accelerator
+    }
+
+    func defaultShortcutLabel(for shortcutID: String) -> String {
+        ShortcutDefinitions.formattedDefaultLabel(for: shortcutID)
+    }
+
+    func isShortcutAtDefault(for shortcutID: String) -> Bool {
+        preferencesStore.shortcutAccelerator(for: shortcutID)
+            == (ShortcutDefinitions.defaultBindings[shortcutID] ?? "")
+    }
+
+    func hasCustomShortcutBindings() -> Bool {
+        ShortcutDefinitions.allShortcutIDs.contains { !isShortcutAtDefault(for: $0) }
+    }
+
+    func clearShortcut(shortcutID: String) {
+        if capturingShortcutId == shortcutID {
+            cancelShortcutCapture()
+        }
+        preferencesStore.setShortcutBinding(id: shortcutID, accelerator: "")
+        registerShortcuts()
+        let action = ShortcutDefinitions.actionLabel(for: shortcutID)
+        let slot = ShortcutDefinitions.slotNumber(for: shortcutID) ?? 0
+        setStatus("Cleared \(action.lowercased()) shortcut for slot \(slot).")
+    }
+
+    func resetShortcutToDefault(shortcutID: String) {
+        if capturingShortcutId == shortcutID {
+            cancelShortcutCapture()
+        }
+        let defaultAccelerator = ShortcutDefinitions.defaultBindings[shortcutID] ?? ""
+        preferencesStore.setShortcutBinding(id: shortcutID, accelerator: defaultAccelerator)
+        registerShortcuts()
+        let action = ShortcutDefinitions.actionLabel(for: shortcutID)
+        let slot = ShortcutDefinitions.slotNumber(for: shortcutID) ?? 0
+        setStatus("Reset \(action.lowercased()) shortcut for slot \(slot) to default.")
+    }
+
+    func resetAllShortcutsToDefaults() {
+        cancelShortcutCapture()
+        preferencesStore.resetShortcutBindingsToDefaults()
+        registerShortcuts()
+        setStatus("Reset all sampler shortcuts to defaults.")
     }
 
     func persistSession() {
         preferencesStore.sessionState.recentCaptures = recentCaptures
+        preferencesStore.sessionState.activeSlotCount = activeSlotCount
         preferencesStore.sessionState.loadedCaptureId = loadedCaptureId
         preferencesStore.sessionState.activeTab = activeTab
         preferencesStore.saveSessionState()
@@ -363,6 +491,71 @@ final class SamplerViewModel: ObservableObject {
 
     private func registerShortcuts() {
         shortcutManager.updateBindings(preferencesStore.preferences.shortcutBindings)
+    }
+
+    private func performCapture(targetSlotIndex: Int?) {
+        guard !isCaptureInProgress else { return }
+
+        captureTask?.cancel()
+        isCaptureInProgress = true
+        setStatus("Capturing from Pro Tools...", isError: false)
+
+        let startingRecentCaptures = recentCaptures
+        let startingStoredCaptures = storedCaptures
+        let startingSequence = nextRecentSequence
+
+        captureTask = Task {
+            defer {
+                Task { @MainActor in
+                    isCaptureInProgress = false
+                    captureTask = nil
+                }
+            }
+
+            do {
+                var slots = startingRecentCaptures
+                var sequence = startingSequence
+                let placed = try await CaptureTimeout.run(
+                    seconds: PTSLCaptureConstants.captureMaxDurationSeconds,
+                    message: "Capture timed out after \(Int(PTSLCaptureConstants.captureMaxDurationSeconds)) seconds. Make sure Pro Tools is running with a clip or edit range selected."
+                ) {
+                    try await ProToolsCaptureService.shared.captureAndPlace(
+                        targetSlotIndex: targetSlotIndex,
+                        recentCaptures: &slots,
+                        nextSequence: &sequence,
+                        storedCaptures: startingStoredCaptures,
+                        onStatus: { message in
+                            Task { @MainActor in
+                                self.setStatus(message, isError: false)
+                            }
+                        }
+                    )
+                }
+
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    recentCaptures = slots
+                    nextRecentSequence = sequence
+                    persistRecentCaptures()
+                    selectCapture(id: placed.capture.id, source: "recent")
+                }
+
+                try await MainActor.run {
+                    try audioPlayback.load(capture: placed.capture)
+                    loadedCaptureId = placed.capture.id
+                    loadedCapture = placed.capture
+                    preferencesStore.sessionState.loadedCaptureId = loadedCaptureId
+                    preferencesStore.saveSessionState()
+                    setStatus("Ready.")
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    setStatus(error.localizedDescription, isError: true)
+                }
+            }
+        }
     }
 
     private func rehydrateLoadedCaptureOnLaunch() {
@@ -423,7 +616,47 @@ final class SamplerViewModel: ObservableObject {
 
     private func persistRecentCaptures() {
         preferencesStore.sessionState.recentCaptures = recentCaptures
+        preferencesStore.sessionState.activeSlotCount = activeSlotCount
         preferencesStore.saveSessionState()
+    }
+
+    private func persistSessionState() {
+        preferencesStore.sessionState.recentCaptures = recentCaptures
+        preferencesStore.sessionState.activeSlotCount = activeSlotCount
+        preferencesStore.saveSessionState()
+    }
+
+    private func syncRecentCapturesToActiveSlotCount() {
+        while recentCaptures.count < activeSlotCount {
+            recentCaptures.append(nil)
+        }
+        if recentCaptures.count > activeSlotCount {
+            recentCaptures = Array(recentCaptures.prefix(activeSlotCount))
+        }
+    }
+
+    func resizeWindowForActiveSlots() {
+        guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey }) else {
+            return
+        }
+
+        let targetHeight = SamplerConstants.contentHeight(
+            forActiveSlotCount: activeSlotCount,
+            showsSlotControls: showsSlotCountControls
+        )
+        var frame = window.frame
+        let heightDelta = targetHeight - frame.size.height
+        frame.origin.y -= heightDelta
+        frame.size.height = targetHeight
+        window.setFrame(frame, display: true, animate: true)
+        preferencesStore.updateWindowFrame(window.frame)
+    }
+
+    func preferredContentHeight() -> CGFloat {
+        SamplerConstants.contentHeight(
+            forActiveSlotCount: activeSlotCount,
+            showsSlotControls: showsSlotCountControls
+        )
     }
 
     private func selectedCapture() -> SamplerCapture? {

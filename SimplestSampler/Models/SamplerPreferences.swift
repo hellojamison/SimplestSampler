@@ -4,17 +4,68 @@ struct SamplerPreferences: Codable, Equatable {
     var samplerAudioOutputDeviceUID: String
     var samplerVolume: Int
     var shortcutBindings: [String: String]
+    var themeMode: SamplerThemeMode
 
     static let defaults = SamplerPreferences(
         samplerAudioOutputDeviceUID: "",
         samplerVolume: SamplerConstants.defaultVolume,
-        shortcutBindings: ShortcutDefinitions.defaultBindings
+        shortcutBindings: ShortcutDefinitions.defaultBindings,
+        themeMode: .system
     )
+
+    enum CodingKeys: String, CodingKey {
+        case samplerAudioOutputDeviceUID
+        case samplerVolume
+        case shortcutBindings
+        case themeMode
+        case darkModeEnabled
+    }
+
+    init(
+        samplerAudioOutputDeviceUID: String,
+        samplerVolume: Int,
+        shortcutBindings: [String: String],
+        themeMode: SamplerThemeMode
+    ) {
+        self.samplerAudioOutputDeviceUID = samplerAudioOutputDeviceUID
+        self.samplerVolume = samplerVolume
+        self.shortcutBindings = shortcutBindings
+        self.themeMode = themeMode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        samplerAudioOutputDeviceUID = try container.decode(String.self, forKey: .samplerAudioOutputDeviceUID)
+        samplerVolume = try container.decode(Int.self, forKey: .samplerVolume)
+        shortcutBindings = try container.decode([String: String].self, forKey: .shortcutBindings)
+
+        if let mode = try container.decodeIfPresent(SamplerThemeMode.self, forKey: .themeMode) {
+            themeMode = mode
+        } else if let legacyDark = try container.decodeIfPresent(Bool.self, forKey: .darkModeEnabled) {
+            themeMode = legacyDark ? .dark : .light
+        } else {
+            themeMode = .system
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(samplerAudioOutputDeviceUID, forKey: .samplerAudioOutputDeviceUID)
+        try container.encode(samplerVolume, forKey: .samplerVolume)
+        try container.encode(shortcutBindings, forKey: .shortcutBindings)
+        try container.encode(themeMode, forKey: .themeMode)
+    }
 }
 
 enum ShortcutDefinitions {
-    static let captureSlotIDs = (1...4).map { "samplerCaptureSlot\($0)" }
-    static let playSlotIDs = (1...4).map { "samplerSlot\($0)" }
+    static let defaultShortcutSlotCount = 4
+
+    static let captureSlotIDs = (1...defaultShortcutSlotCount).map { "samplerCaptureSlot\($0)" }
+    static let playSlotIDs = (1...defaultShortcutSlotCount).map { "samplerSlot\($0)" }
+
+    static func hasShortcutSupport(forSlotNumber slot: Int) -> Bool {
+        slot >= 1 && slot <= defaultShortcutSlotCount
+    }
 
     static let defaultBindings: [String: String] = [
         "samplerCaptureSlot1": "Command+F13",
@@ -46,6 +97,20 @@ enum ShortcutDefinitions {
     static func slotNumber(for shortcutID: String) -> Int? {
         let digits = shortcutID.filter(\.isNumber)
         return Int(digits)
+    }
+
+    static let allShortcutIDs: [String] = captureSlotIDs + playSlotIDs
+
+    static func preferencesActionLabel(for shortcutID: String) -> String {
+        if shortcutID.hasPrefix("samplerCaptureSlot") { return "Capture slot" }
+        if shortcutID.hasPrefix("samplerSlot") { return "Play slot" }
+        return "Shortcut"
+    }
+
+    static func formattedDefaultLabel(for shortcutID: String) -> String {
+        let accelerator = defaultBindings[shortcutID] ?? ""
+        if accelerator.isEmpty { return "None" }
+        return ParsedShortcut.parse(accelerator)?.formattedLabel() ?? accelerator
     }
 }
 

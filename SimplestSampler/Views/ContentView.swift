@@ -1,10 +1,12 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var viewModel: SamplerViewModel
+    @Environment(\.samplerThemeColors) private var theme
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: SamplerTheme.Layout.sectionSpacing) {
             outputBar
             toolbar
             tabBar
@@ -12,16 +14,22 @@ struct ContentView: View {
             footer
             statusBar
         }
-        .padding(8)
-        .background(SamplerTheme.backgroundGradient)
+        .padding(SamplerTheme.Layout.windowPadding)
+        .background(theme.backgroundGradient)
         .background(WindowFrameTracker(viewModel: viewModel))
+        .background {
+            if #available(macOS 14.0, *) {
+                PreferencesOpenSettingsBridge()
+            }
+        }
     }
 
     private var outputBar: some View {
-        HStack {
+        HStack(spacing: SamplerTheme.Layout.rowColumnGap) {
             Text("Output")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(SamplerTheme.muted)
+                .foregroundStyle(theme.muted)
+                .frame(width: SamplerTheme.Layout.labelWidth, alignment: .leading)
 
             Picker("Sampler audio output", selection: Binding(
                 get: { viewModel.outputDeviceUID },
@@ -35,40 +43,43 @@ struct ContentView: View {
             .labelsHidden()
             .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color.white.opacity(0.55))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(SamplerTheme.border, lineWidth: 1)
-        )
+        .padding(.horizontal, SamplerTheme.Layout.chipPaddingH)
+        .padding(.vertical, SamplerTheme.Layout.chipPaddingV)
+        .frame(minHeight: SamplerTheme.Layout.chipMinHeight)
+        .samplerChipSurface()
     }
 
     private var toolbar: some View {
-        HStack(spacing: 8) {
-            Button(viewModel.audioPlayback.isPlaying ? "Stop" : "Play") {
-                viewModel.playToggleTapped()
-            }
-            .buttonStyle(SamplerToolbarButtonStyle())
-            .disabled(!viewModel.audioPlayback.isPlaying && viewModel.selectedCapture() == nil)
+        HStack(spacing: SamplerTheme.Layout.toolbarGap) {
+            HStack(spacing: SamplerTheme.Layout.toolbarGap) {
+                Button(viewModel.audioPlayback.isPlaying ? "Stop" : "Play") {
+                    viewModel.playToggleTapped()
+                }
+                .buttonStyle(SamplerToolbarButtonStyle())
+                .disabled(!viewModel.audioPlayback.isPlaying && viewModel.selectedCapture() == nil)
 
-            Button("Capture") {
-                viewModel.captureButtonTapped()
+                Button("Capture") {
+                    viewModel.captureButtonTapped()
+                }
+                .buttonStyle(SamplerCaptureButtonStyle())
+                .disabled(viewModel.isCaptureInProgress)
+                .help("Capture the selected Pro Tools clip or edit range into the Active sampler")
             }
-            .buttonStyle(SamplerCaptureButtonStyle())
-            .help("Pro Tools capture arrives in Phase 2")
+            .frame(maxWidth: .infinity)
+
+            PreferencesGearButton()
         }
     }
 
     private var tabBar: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: SamplerTheme.Layout.tabBarPadding) {
             tabButton(title: "Active", tab: "recent")
             tabButton(title: "Stored", tab: "stored")
         }
-        .padding(3)
-        .background(Color.white.opacity(0.45))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(SamplerTheme.Layout.tabBarPadding)
+        .background(theme.tabBarBackground)
+        .clipShape(Capsule(style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func tabButton(title: String, tab: String) -> some View {
@@ -76,12 +87,11 @@ struct ContentView: View {
             viewModel.setActiveTab(tab)
         }
         .buttonStyle(SamplerTabButtonStyle(isActive: viewModel.activeTab == tab))
-        .frame(maxWidth: .infinity)
     }
 
     private var captureList: some View {
         ScrollView {
-            VStack(spacing: 6) {
+            VStack(spacing: SamplerTheme.Layout.rowSpacing) {
                 if viewModel.activeTab == "stored" {
                     if viewModel.storedCaptures.isEmpty {
                         SlotRowView(viewModel: viewModel, index: 0, capture: nil, isStored: true)
@@ -91,13 +101,31 @@ struct ContentView: View {
                         }
                     }
                 } else {
-                    ForEach(0..<SamplerConstants.maxActiveSlots, id: \.self) { index in
+                    ForEach(0..<viewModel.activeSlotCount, id: \.self) { index in
                         SlotRowView(
                             viewModel: viewModel,
                             index: index,
                             capture: viewModel.recentCaptures[index],
                             isStored: false
                         )
+                    }
+
+                    if viewModel.showsSlotCountControls {
+                        HStack(spacing: 8) {
+                            if viewModel.canRemoveActiveSlot {
+                                Button(action: { viewModel.removeActiveSlot() }) {
+                                    slotCountControlLabel(systemImage: "minus", title: "Remove Slot")
+                                }
+                                .buttonStyle(AddSlotButtonStyle())
+                            }
+
+                            if viewModel.canAddActiveSlot {
+                                Button(action: { viewModel.addActiveSlot() }) {
+                                    slotCountControlLabel(systemImage: "plus", title: "Add Slot")
+                                }
+                                .buttonStyle(AddSlotButtonStyle())
+                            }
+                        }
                     }
                 }
             }
@@ -112,9 +140,145 @@ struct ContentView: View {
     private var statusBar: some View {
         Text(viewModel.statusMessage)
             .font(.system(size: 11))
-            .foregroundStyle(viewModel.statusIsError ? SamplerTheme.error : SamplerTheme.muted)
+            .foregroundStyle(viewModel.statusIsError ? theme.error : theme.muted)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 4)
+            .padding(.top, SamplerTheme.Layout.statusBarTopPadding)
+    }
+
+    private func slotCountControlLabel(systemImage: String, title: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .semibold))
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+        }
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: SamplerConstants.addSlotControlHeight)
+        .foregroundStyle(theme.muted)
+    }
+
+}
+
+@available(macOS 14.0, *)
+private struct PreferencesOpenSettingsBridge: View {
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onAppear {
+                PreferencesBridge.openHandler = { openSettings() }
+            }
+            .onDisappear {
+                PreferencesBridge.openHandler = nil
+            }
+    }
+}
+
+struct PreferencesGearButton: View {
+    var body: some View {
+        if #available(macOS 14.0, *) {
+            PreferencesGearButtonModern()
+        } else {
+            PreferencesGearButtonLegacy()
+        }
+    }
+}
+
+@available(macOS 14.0, *)
+private struct PreferencesGearButtonModern: View {
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Button(action: { PreferencesOpener.toggle(openSettings: openSettings) }) {
+            PreferencesGearButtonLabel()
+        }
+        .buttonStyle(SamplerIconButtonStyle())
+        .help("Preferences (⌘,)")
+    }
+}
+
+private struct PreferencesGearButtonLegacy: View {
+    var body: some View {
+        Button(action: PreferencesOpener.toggle) {
+            PreferencesGearButtonLabel()
+        }
+        .buttonStyle(SamplerIconButtonStyle())
+        .help("Preferences (⌘,)")
+    }
+}
+
+private struct PreferencesGearButtonLabel: View {
+    var body: some View {
+        Image(systemName: "gearshape")
+            .font(.system(size: 13, weight: .semibold))
+            .frame(width: SamplerTheme.Layout.iconButtonSize, height: SamplerTheme.Layout.iconButtonSize)
+    }
+}
+
+@MainActor
+enum PreferencesBridge {
+    static var openHandler: (() -> Void)?
+
+    static func toggle() {
+        if PreferencesOpener.closeIfOpen() { return }
+        if let openHandler {
+            openHandler()
+        } else {
+            PreferencesOpener.open()
+        }
+    }
+}
+
+enum PreferencesOpener {
+    @MainActor
+    static func toggle() {
+        PreferencesBridge.toggle()
+    }
+
+    @available(macOS 14.0, *)
+    @MainActor
+    static func toggle(openSettings: OpenSettingsAction) {
+        if closeIfOpen() { return }
+        openSettings()
+    }
+
+    @MainActor
+    static func open() {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let selectors = ["showSettingsWindow:", "showPreferencesWindow:"]
+        for name in selectors {
+            let selector = Selector((name))
+            if NSApp.sendAction(selector, to: nil, from: nil) { return }
+            if NSApp.sendAction(selector, to: NSApp, from: nil) { return }
+        }
+
+        guard let appMenu = NSApp.mainMenu?.items.first?.submenu else { return }
+        for item in appMenu.items where item.keyEquivalent == "," {
+            guard let action = item.action else { return }
+            NSApp.sendAction(action, to: item.target, from: item)
+            return
+        }
+    }
+
+    @MainActor
+    static func closeIfOpen() -> Bool {
+        guard let window = settingsWindow() else { return false }
+        window.close()
+        return true
+    }
+
+    @MainActor
+    private static func settingsWindow() -> NSWindow? {
+        NSApp.windows.first { window in
+            guard window.isVisible else { return false }
+            let title = window.title.lowercased()
+            if title.contains("settings") || title.contains("preferences") {
+                return true
+            }
+            return String(describing: type(of: window)).lowercased().contains("settings")
+        }
     }
 }
 
@@ -127,38 +291,59 @@ private extension SamplerViewModel {
     }
 }
 
+struct SamplerIconButtonStyle: ButtonStyle {
+    @Environment(\.samplerThemeColors) private var theme
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(theme.text)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(configuration.isPressed ? theme.buttonFillPressed : theme.buttonFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(theme.border, lineWidth: 1)
+            )
+    }
+}
+
 struct SamplerToolbarButtonStyle: ButtonStyle {
+    @Environment(\.samplerThemeColors) private var theme
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 13, weight: .semibold))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .foregroundStyle(SamplerTheme.text)
+            .frame(minHeight: SamplerTheme.Layout.toolbarButtonHeight)
+            .foregroundStyle(theme.text)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.white.opacity(configuration.isPressed ? 0.7 : 0.92))
+                    .fill(configuration.isPressed ? theme.buttonFillPressed : theme.buttonFill)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(SamplerTheme.border, lineWidth: 1)
+                    .stroke(theme.border, lineWidth: 1)
             )
     }
 }
 
 struct SamplerCaptureButtonStyle: ButtonStyle {
+    @Environment(\.samplerThemeColors) private var theme
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 13, weight: .semibold))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .foregroundStyle(SamplerTheme.captureText)
+            .frame(minHeight: SamplerTheme.Layout.toolbarButtonHeight)
+            .foregroundStyle(theme.captureText)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
-                                SamplerTheme.captureTop.opacity(configuration.isPressed ? 0.8 : 1),
-                                SamplerTheme.captureBottom.opacity(configuration.isPressed ? 0.8 : 1)
+                                theme.captureTop.opacity(configuration.isPressed ? 0.8 : 1),
+                                theme.captureBottom.opacity(configuration.isPressed ? 0.8 : 1)
                             ],
                             startPoint: .top,
                             endPoint: .bottom
@@ -167,22 +352,40 @@ struct SamplerCaptureButtonStyle: ButtonStyle {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(SamplerTheme.captureBottom.opacity(0.35), lineWidth: 1)
+                    .stroke(theme.captureBottom.opacity(0.35), lineWidth: 1)
+            )
+    }
+}
+
+struct AddSlotButtonStyle: ButtonStyle {
+    @Environment(\.samplerThemeColors) private var theme
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: SamplerTheme.Layout.rowCornerRadius, style: .continuous)
+                    .fill(configuration.isPressed ? theme.buttonFillPressed : theme.chipBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: SamplerTheme.Layout.rowCornerRadius, style: .continuous)
+                    .stroke(theme.border, lineWidth: 1)
             )
     }
 }
 
 struct SamplerTabButtonStyle: ButtonStyle {
     var isActive: Bool
+    @Environment(\.samplerThemeColors) private var theme
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: .semibold))
-            .padding(.vertical, 6)
-            .foregroundStyle(isActive ? SamplerTheme.slotSelectedText : SamplerTheme.text)
+            .padding(.horizontal, SamplerTheme.Layout.tabPaddingH)
+            .frame(minHeight: SamplerTheme.Layout.tabMinHeight)
+            .foregroundStyle(isActive ? theme.slotSelectedText : theme.muted)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isActive ? SamplerTheme.slotSelected : Color.clear)
+                Capsule(style: .continuous)
+                    .fill(isActive ? theme.accent : Color.clear)
             )
     }
 }
@@ -216,7 +419,7 @@ struct WindowFrameTracker: NSViewRepresentable {
         } else {
             window.setContentSize(NSSize(
                 width: SamplerConstants.defaultWindowWidth,
-                height: SamplerConstants.defaultWindowHeight
+                height: viewModel.preferredContentHeight()
             ))
         }
 

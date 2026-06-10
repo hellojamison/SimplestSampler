@@ -17,12 +17,14 @@ struct SimplestSamplerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(viewModel: viewModel)
-                .frame(
-                    minWidth: SamplerConstants.minWindowWidth,
-                    minHeight: SamplerConstants.minWindowHeight
-                )
-                .background(KeyboardHandlerView(viewModel: viewModel))
+            SamplerThemedRoot(viewModel: viewModel) {
+                ContentView(viewModel: viewModel)
+                    .frame(
+                        minWidth: SamplerConstants.minWindowWidth,
+                        minHeight: SamplerConstants.minWindowHeight
+                    )
+                    .background(KeyboardHandlerView(viewModel: viewModel))
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(
@@ -31,6 +33,18 @@ struct SimplestSamplerApp: App {
         )
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    PreferencesBridge.toggle()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+        }
+
+        Settings {
+            SamplerThemedRoot(viewModel: viewModel) {
+                ShortcutPreferencesView(viewModel: viewModel)
+            }
         }
     }
 }

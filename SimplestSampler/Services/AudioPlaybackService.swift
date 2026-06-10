@@ -24,19 +24,31 @@ final class AudioPlaybackService: ObservableObject {
     }
 
     func setVolume(_ value: Int) {
-        volume = max(0, min(SamplerConstants.maxVolume, value))
-        let gain = min(1.0, Double(volume) / 80.0)
-        audioEngine.mainMixerNode.outputVolume = Float(gain)
+        volume = SamplerVolumeMath.normalizedVolume(value)
+        audioEngine.mainMixerNode.outputVolume = SamplerVolumeMath.gainMultiplier(forVolume: volume)
     }
 
     func setOutputDeviceUID(_ uid: String) {
         outputDeviceUID = uid
-        applyOutputDevice()
+        applyOutputDevice(restartEngine: audioEngine.isRunning)
     }
 
-    private func applyOutputDevice() {
-        guard let audioUnit = audioEngine.outputNode.audioUnit else { return }
-        AudioOutputDeviceService.setOutputDevice(uid: outputDeviceUID, on: audioUnit)
+    private func applyOutputDevice(restartEngine: Bool = false) {
+        guard !outputDeviceUID.isEmpty,
+              let audioUnit = audioEngine.outputNode.audioUnit else {
+            return
+        }
+
+        let wasRunning = audioEngine.isRunning
+        if wasRunning {
+            audioEngine.pause()
+        }
+
+        _ = AudioOutputDeviceService.setOutputDevice(uid: outputDeviceUID, on: audioUnit)
+
+        if restartEngine || wasRunning {
+            try? audioEngine.start()
+        }
     }
 
     func load(capture: SamplerCapture) throws {
@@ -90,9 +102,9 @@ final class AudioPlaybackService: ObservableObject {
             throw NSError(domain: "SimplestSampler", code: 12, userInfo: [NSLocalizedDescriptionKey: "Could not play the loaded sampler file."])
         }
 
-        try prepareEngine()
         setVolume(volume)
-        applyOutputDevice()
+        applyOutputDevice(restartEngine: true)
+        try prepareEngine()
 
         playerNode.scheduleSegment(
             file,

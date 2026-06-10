@@ -35,8 +35,20 @@ final class PreferencesStore: ObservableObject {
         savePreferences()
     }
 
+    func setThemeMode(_ mode: SamplerThemeMode) {
+        preferences.themeMode = mode
+        savePreferences()
+    }
+
     func setShortcutBinding(id: String, accelerator: String) {
         preferences.shortcutBindings[id] = accelerator
+        savePreferences()
+    }
+
+    func resetShortcutBindingsToDefaults() {
+        for (id, accelerator) in ShortcutDefinitions.defaultBindings {
+            preferences.shortcutBindings[id] = accelerator
+        }
         savePreferences()
     }
 
@@ -75,13 +87,25 @@ final class PreferencesStore: ObservableObject {
               let decoded = try? JSONDecoder().decode(SamplerSessionState.self, from: data) else {
             return .empty
         }
-        var state = decoded
-        while state.recentCaptures.count < SamplerConstants.maxActiveSlots {
-            state.recentCaptures.append(nil)
+        return normalizeSessionState(decoded)
+    }
+
+    private static func normalizeSessionState(_ state: SamplerSessionState) -> SamplerSessionState {
+        var normalized = state
+        let inferredCount = max(
+            SamplerConstants.defaultActiveSlots,
+            normalized.activeSlotCount ?? SamplerConstants.defaultActiveSlots,
+            normalized.recentCaptures.count
+        )
+        let clampedCount = min(SamplerConstants.maxActiveSlots, inferredCount)
+        normalized.activeSlotCount = clampedCount
+
+        while normalized.recentCaptures.count < clampedCount {
+            normalized.recentCaptures.append(nil)
         }
-        if state.recentCaptures.count > SamplerConstants.maxActiveSlots {
-            state.recentCaptures = Array(state.recentCaptures.prefix(SamplerConstants.maxActiveSlots))
+        if normalized.recentCaptures.count > clampedCount {
+            normalized.recentCaptures = Array(normalized.recentCaptures.prefix(clampedCount))
         }
-        return state
+        return normalized
     }
 }

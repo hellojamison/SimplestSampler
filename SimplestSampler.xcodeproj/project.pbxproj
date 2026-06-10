@@ -20,6 +20,17 @@
 		A1000000000000000000000B /* VolumeControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* VolumeControlView.swift */; };
 		A1000000000000000000000C /* SlotRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* SlotRowView.swift */; };
 		A1000000000000000000000D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* ContentView.swift */; };
+		A1000000000000000000000E /* ShortcutBindingButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* ShortcutBindingButton.swift */; };
+		A1000000000000000000000F /* ShortcutPreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* ShortcutPreferencesView.swift */; };
+		B10000000000000000000001 /* CaptureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* CaptureModels.swift */; };
+		B10000000000000000000002 /* PTTimecodeMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* PTTimecodeMath.swift */; };
+		B10000000000000000000003 /* PTSLHelperClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* PTSLHelperClient.swift */; };
+		B10000000000000000000004 /* MultichannelWaveRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000004 /* MultichannelWaveRenderer.swift */; };
+		B10000000000000000000005 /* ConsolidateFallbackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000005 /* ConsolidateFallbackService.swift */; };
+		B10000000000000000000006 /* ActiveSlotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000006 /* ActiveSlotService.swift */; };
+		B10000000000000000000007 /* FrontmostAppService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000007 /* FrontmostAppService.swift */; };
+		B10000000000000000000008 /* ProToolsCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000008 /* ProToolsCaptureService.swift */; };
+		B10000000000000000000009 /* SamplerVolumeMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000009 /* SamplerVolumeMath.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +50,17 @@
 		A2000000000000000000000E /* SimplestSampler.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SimplestSampler.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A2000000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000010 /* SimplestSampler.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SimplestSampler.entitlements; sourceTree = "<group>"; };
+		A20000000000000000000011 /* ShortcutBindingButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutBindingButton.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* ShortcutPreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutPreferencesView.swift; sourceTree = "<group>"; };
+		B20000000000000000000001 /* CaptureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureModels.swift; sourceTree = "<group>"; };
+		B20000000000000000000002 /* PTTimecodeMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTTimecodeMath.swift; sourceTree = "<group>"; };
+		B20000000000000000000003 /* PTSLHelperClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTSLHelperClient.swift; sourceTree = "<group>"; };
+		B20000000000000000000004 /* MultichannelWaveRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultichannelWaveRenderer.swift; sourceTree = "<group>"; };
+		B20000000000000000000005 /* ConsolidateFallbackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidateFallbackService.swift; sourceTree = "<group>"; };
+		B20000000000000000000006 /* ActiveSlotService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveSlotService.swift; sourceTree = "<group>"; };
+		B20000000000000000000007 /* FrontmostAppService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmostAppService.swift; sourceTree = "<group>"; };
+		B20000000000000000000008 /* ProToolsCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProToolsCaptureService.swift; sourceTree = "<group>"; };
+		B20000000000000000000009 /* SamplerVolumeMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SamplerVolumeMath.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -87,6 +109,7 @@
 			children = (
 				A20000000000000000000002 /* SamplerCapture.swift */,
 				A20000000000000000000003 /* SamplerPreferences.swift */,
+				B20000000000000000000001 /* CaptureModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -98,7 +121,15 @@
 				A20000000000000000000005 /* AudioOutputDeviceService.swift */,
 				A20000000000000000000006 /* StoredLibraryService.swift */,
 				A20000000000000000000007 /* AudioPlaybackService.swift */,
+				B20000000000000000000009 /* SamplerVolumeMath.swift */,
 				A20000000000000000000008 /* GlobalShortcutManager.swift */,
+				B20000000000000000000002 /* PTTimecodeMath.swift */,
+				B20000000000000000000003 /* PTSLHelperClient.swift */,
+				B20000000000000000000004 /* MultichannelWaveRenderer.swift */,
+				B20000000000000000000005 /* ConsolidateFallbackService.swift */,
+				B20000000000000000000006 /* ActiveSlotService.swift */,
+				B20000000000000000000007 /* FrontmostAppService.swift */,
+				B20000000000000000000008 /* ProToolsCaptureService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -118,6 +149,8 @@
 				A2000000000000000000000C /* SlotRowView.swift */,
 				A2000000000000000000000B /* VolumeControlView.swift */,
 				A2000000000000000000000A /* SamplerTheme.swift */,
+				A20000000000000000000011 /* ShortcutBindingButton.swift */,
+				A20000000000000000000012 /* ShortcutPreferencesView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -129,6 +162,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A70000000000000000000003 /* Build configuration list for PBXNativeTarget "SimplestSampler" */;
 			buildPhases = (
+				B30000000000000000000001 /* Build Native Helper */,
 				A30000000000000000000002 /* Sources */,
 				A30000000000000000000001 /* Frameworks */,
 				A30000000000000000000003 /* Resources */,
@@ -185,6 +219,27 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		B30000000000000000000001 /* Build Native Helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/build-native-helper.js",
+				"$(SRCROOT)/native/src/ptsl_markers_helper.cpp",
+			);
+			name = "Build Native Helper";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/ptsl_markers_helper",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nREPO_ROOT=\"${SRCROOT}\"\nHELPER_ARCH=\"$(uname -m)\"\nHELPER_BIN=\"${REPO_ROOT}/bin/mac-${HELPER_ARCH}/ptsl_markers_helper\"\nDEST_DIR=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin\"\nmkdir -p \"${DEST_DIR}\"\nif [ -f \"${HELPER_BIN}\" ]; then\n  cp \"${HELPER_BIN}\" \"${DEST_DIR}/ptsl_markers_helper\"\n  chmod +x \"${DEST_DIR}/ptsl_markers_helper\"\n  codesign --force --sign - \"${DEST_DIR}/ptsl_markers_helper\" 2>/dev/null || true\nelse\n  echo \"warning: ptsl_markers_helper not found at ${HELPER_BIN}; run node scripts/build-native-helper.js\"\n  touch \"${DEST_DIR}/ptsl_markers_helper.placeholder\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		A30000000000000000000002 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -203,6 +258,17 @@
 				A1000000000000000000000B /* VolumeControlView.swift in Sources */,
 				A1000000000000000000000C /* SlotRowView.swift in Sources */,
 				A1000000000000000000000D /* ContentView.swift in Sources */,
+				A1000000000000000000000E /* ShortcutBindingButton.swift in Sources */,
+				A1000000000000000000000F /* ShortcutPreferencesView.swift in Sources */,
+				B10000000000000000000001 /* CaptureModels.swift in Sources */,
+				B10000000000000000000002 /* PTTimecodeMath.swift in Sources */,
+				B10000000000000000000003 /* PTSLHelperClient.swift in Sources */,
+				B10000000000000000000004 /* MultichannelWaveRenderer.swift in Sources */,
+				B10000000000000000000005 /* ConsolidateFallbackService.swift in Sources */,
+				B10000000000000000000006 /* ActiveSlotService.swift in Sources */,
+				B10000000000000000000007 /* FrontmostAppService.swift in Sources */,
+				B10000000000000000000008 /* ProToolsCaptureService.swift in Sources */,
+				B10000000000000000000009 /* SamplerVolumeMath.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

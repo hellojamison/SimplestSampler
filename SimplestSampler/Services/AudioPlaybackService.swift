@@ -34,6 +34,7 @@ final class AudioPlaybackService: ObservableObject {
     func setVolume(_ value: Int) {
         volume = SamplerVolumeMath.normalizedVolume(value)
         audioEngine.mainMixerNode.outputVolume = SamplerVolumeMath.gainMultiplier(forVolume: volume)
+        refreshDisplayedOutputLevel()
     }
 
     func setOutputDeviceUID(_ uid: String) {
@@ -49,6 +50,7 @@ final class AudioPlaybackService: ObservableObject {
 
         let wasRunning = audioEngine.isRunning
         if wasRunning {
+            removeOutputLevelTapIfNeeded()
             audioEngine.pause()
         }
 
@@ -56,6 +58,7 @@ final class AudioPlaybackService: ObservableObject {
 
         if restartEngine || wasRunning {
             try? audioEngine.start()
+            installOutputLevelTapIfNeeded()
         }
     }
 
@@ -135,8 +138,8 @@ final class AudioPlaybackService: ObservableObject {
     func stop(updateStatus: Bool = true) {
         positionTimer?.invalidate()
         positionTimer = nil
-        playerNode.stop()
         removeOutputLevelTapIfNeeded()
+        playerNode.stop()
         if audioEngine.isRunning {
             audioEngine.pause()
         }
@@ -152,6 +155,7 @@ final class AudioPlaybackService: ObservableObject {
     private func finishPlayback() {
         positionTimer?.invalidate()
         positionTimer = nil
+        removeOutputLevelTapIfNeeded()
         playerNode.stop()
         isPlaying = false
         playingCaptureId = ""
@@ -203,9 +207,11 @@ final class AudioPlaybackService: ObservableObject {
     private func installOutputLevelTapIfNeeded() {
         guard !outputTapInstalled else { return }
 
-        let mixer = audioEngine.mainMixerNode
-        let format = mixer.outputFormat(forBus: 0)
-        mixer.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        let node = playerNode
+        let format = node.outputFormat(forBus: 0)
+        guard format.channelCount > 0, format.sampleRate > 0 else { return }
+
+        node.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             guard let peak = Self.peakLevel(in: buffer) else { return }
             Task { @MainActor [weak self] in
                 self?.updateOutputLevel(peak: peak)
@@ -216,25 +222,38 @@ final class AudioPlaybackService: ObservableObject {
 
     private func removeOutputLevelTapIfNeeded() {
         guard outputTapInstalled else { return }
-        audioEngine.mainMixerNode.removeTap(onBus: 0)
+        playerNode.removeTap(onBus: 0)
         outputTapInstalled = false
     }
 
     private static func peakLevel(in buffer: AVAudioPCMBuffer) -> Float? {
-        guard let channelData = buffer.floatChannelData else { return nil }
-
         let frameLength = Int(buffer.frameLength)
         let channelCount = Int(buffer.format.channelCount)
         guard frameLength > 0, channelCount > 0 else { return nil }
 
-        var peak: Float = 0
-        for channel in 0..<channelCount {
-            let samples = channelData[channel]
-            for frame in 0..<frameLength {
-                peak = max(peak, abs(samples[frame]))
+        if let channelData = buffer.floatChannelData {
+            var peak: Float = 0
+            for channel in 0..<channelCount {
+                let samples = channelData[channel]
+                for frame in 0..<frameLength {
+                    peak = max(peak, abs(samples[frame]))
+                }
             }
+            return peak
         }
-        return peak
+
+        if let channelData = buffer.int16ChannelData {
+            var peak: Float = 0
+            for channel in 0..<channelCount {
+                let samples = channelData[channel]
+                for frame in 0..<frameLength {
+                    peak = max(peak, abs(Float(samples[frame]) / 32_768.0))
+                }
+            }
+            return peak
+        }
+
+        return nil
     }
 
     private func updateOutputLevel(peak: Float) {
@@ -252,10 +271,16 @@ final class AudioPlaybackService: ObservableObject {
         } else {
             meterLevel = (0.82 * meterLevel) + (0.18 * samplePeak)
         }
-        outputLevel = displayLevel(from: meterLevel)
+        refreshDisplayedOutputLevel()
+    }
+
+    private func refreshDisplayedOutputLevel() {
+        let gain = SamplerVolumeMath.gainMultiplier(forVolume: volume)
+        outputLevel = displayLevel(from: meterLevel * gain)
     }
 
     private func displayLevel(from peak: Float) -> Double {
+        guard peak > 0 else { return 0 }
         let floor: Float = 0.000_25
         let clamped = min(1, max(floor, peak))
         let normalized = (20 * log10(clamped) + 60) / 60

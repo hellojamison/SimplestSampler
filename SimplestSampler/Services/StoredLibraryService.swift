@@ -121,12 +121,65 @@ enum StoredLibraryService {
         return removed
     }
 
-    static func renameStoredCapture(id: String, displayName: String, hasCustomDisplayName: Bool) throws {
+    static func renameStoredCapture(id: String, displayName: String, hasCustomDisplayName: Bool) throws -> SamplerCapture? {
         var metadata = loadLibrary()
-        guard let index = metadata.captures.firstIndex(where: { $0.id == id }) else { return }
-        metadata.captures[index].displayName = displayName
-        metadata.captures[index].hasCustomDisplayName = hasCustomDisplayName
+        guard let index = metadata.captures.firstIndex(where: { $0.id == id }) else { return nil }
+
+        var capture = metadata.captures[index]
+        capture.displayName = displayName
+        capture.hasCustomDisplayName = hasCustomDisplayName
+
+        if capture.managedByApp {
+            capture = try renameManagedStoredFile(capture)
+        }
+
+        metadata.captures[index] = capture
         try saveLibrary(metadata)
+        return capture
+    }
+
+    private static func renameManagedStoredFile(_ capture: SamplerCapture) throws -> SamplerCapture {
+        let currentPath = capture.filePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !currentPath.isEmpty else { return capture }
+
+        let currentURL = URL(fileURLWithPath: currentPath)
+        guard FileManager.default.fileExists(atPath: currentURL.path) else {
+            throw NSError(
+                domain: "SimplestSampler",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "The stored audio file is missing on disk."]
+            )
+        }
+
+        let ext = currentURL.pathExtension.isEmpty ? "wav" : currentURL.pathExtension
+        let baseName = buildStoredBaseName(capture, displayNameOverride: nil)
+        let targetURL = uniqueTargetURLForRename(baseName: baseName, extension: ext, excluding: currentURL)
+
+        guard targetURL.path != currentURL.path else { return capture }
+
+        try FileManager.default.moveItem(at: currentURL, to: targetURL)
+
+        var updated = capture
+        updated.filePath = targetURL.path
+        updated.fileName = targetURL.lastPathComponent
+        return updated
+    }
+
+    private static func uniqueTargetURLForRename(baseName: String, extension ext: String, excluding excluded: URL) -> URL {
+        var candidate = samplesDirectoryURL.appendingPathComponent("\(baseName).\(ext)")
+        if candidate.path == excluded.path {
+            return candidate
+        }
+
+        var counter = 1
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            if candidate.path == excluded.path {
+                return candidate
+            }
+            candidate = samplesDirectoryURL.appendingPathComponent("\(baseName)-\(counter).\(ext)")
+            counter += 1
+        }
+        return candidate
     }
 
     private static func buildStoredBaseName(_ capture: SamplerCapture, displayNameOverride: String?) -> String {

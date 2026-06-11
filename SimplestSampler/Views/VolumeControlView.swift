@@ -13,14 +13,20 @@ struct VolumeControlView: View {
                     .frame(width: SamplerTheme.Layout.labelWidth, alignment: .leading)
 
                 HStack(spacing: SamplerTheme.Layout.volumeSliderGap) {
-                    Slider(
-                        value: Binding(
-                            get: { Double(viewModel.volume) },
-                            set: { viewModel.setVolume(Int($0.rounded())) }
-                        ),
-                        in: 0...Double(SamplerConstants.maxVolume),
-                        step: 1
-                    )
+                    VStack(alignment: .leading, spacing: SamplerTheme.Layout.volumeMeterSpacing) {
+                        SamplerVolumeSlider(
+                            value: Binding(
+                                get: { viewModel.volume },
+                                set: { viewModel.setVolume($0) }
+                            ),
+                            maxValue: SamplerConstants.maxVolume
+                        )
+
+                        if viewModel.audioPlayback.isPlaying {
+                            VolumeMeterView(level: viewModel.audioPlayback.outputLevel)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
 
                     Text(SamplerVolumeMath.formattedDecibels(forVolume: viewModel.volume))
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -29,17 +35,6 @@ struct VolumeControlView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                 }
-            }
-
-            HStack(spacing: SamplerTheme.Layout.volumeSliderGap) {
-                Spacer()
-                    .frame(width: SamplerTheme.Layout.labelWidth)
-
-                VolumeMeterView(level: viewModel.audioPlayback.outputLevel)
-                    .frame(maxWidth: .infinity)
-
-                Spacer()
-                    .frame(width: SamplerTheme.Layout.volumeValueWidth)
             }
         }
         .padding(.horizontal, SamplerTheme.Layout.chipPaddingH)

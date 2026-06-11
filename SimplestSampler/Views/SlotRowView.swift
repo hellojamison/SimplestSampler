@@ -80,6 +80,9 @@ struct SlotRowView: View {
                         guard !nameFocused else { return }
                         draftName = capture?.slotLabel ?? ""
                     }
+                    .modifier(StoredDoubleClickRenameModifier(enabled: isStored && capture != nil) {
+                        beginRename()
+                    })
 
                     if let duration = capture?.formattedDuration {
                         Text(duration)
@@ -167,7 +170,7 @@ struct SlotRowView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
-            guard let capture else { return }
+            guard let capture, !nameFocused else { return }
             viewModel.selectCapture(id: capture.id, source: isStored ? "stored" : "recent")
         }
         .onDrop(of: [.fileURL], isTargeted: dropTargetBinding) { providers in
@@ -217,6 +220,12 @@ struct SlotRowView: View {
         viewModel.playCapture(capture, source: isStored ? "stored" : "recent")
     }
 
+    private func beginRename() {
+        guard capture != nil else { return }
+        draftName = capture?.slotLabel ?? ""
+        nameFocused = true
+    }
+
     private func commitRename() {
         guard let capture else {
             draftName = ""
@@ -242,6 +251,21 @@ struct SlotRowView: View {
             }
         }
         return true
+    }
+}
+
+private struct StoredDoubleClickRenameModifier: ViewModifier {
+    var enabled: Bool
+    var onRename: () -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.highPriorityGesture(
+                TapGesture(count: 2).onEnded { onRename() }
+            )
+        } else {
+            content
+        }
     }
 }
 

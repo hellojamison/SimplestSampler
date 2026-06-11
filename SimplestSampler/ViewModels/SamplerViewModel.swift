@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -41,6 +42,7 @@ final class SamplerViewModel: ObservableObject {
     private var nextRecentSequence = 1
     private var loadedCapture: SamplerCapture?
     private var captureTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
 
     var outputDeviceUID: String {
         preferencesStore.preferences.samplerAudioOutputDeviceUID
@@ -66,6 +68,12 @@ final class SamplerViewModel: ObservableObject {
                 self?.refreshPlaybackStatus()
             }
         }
+
+        audioPlayback.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
 
         reloadStoredLibrary()
         reconcileSelection()
@@ -318,11 +326,31 @@ final class SamplerViewModel: ObservableObject {
                 recentCaptures[index]?.hasCustomDisplayName = hasCustomDisplayName
             }
         }
+
         if let storedIndex = storedCaptures.firstIndex(where: { $0.id == id }) {
-            storedCaptures[storedIndex].displayName = displayName
-            storedCaptures[storedIndex].hasCustomDisplayName = hasCustomDisplayName
-            try? StoredLibraryService.renameStoredCapture(id: id, displayName: displayName, hasCustomDisplayName: hasCustomDisplayName)
+            do {
+                guard let updated = try StoredLibraryService.renameStoredCapture(
+                    id: id,
+                    displayName: displayName,
+                    hasCustomDisplayName: hasCustomDisplayName
+                ) else {
+                    return
+                }
+                storedCaptures[storedIndex] = updated
+                if loadedCaptureId == id {
+                    let wasPlaying = audioPlayback.isPlaying && audioPlayback.playingCaptureId == id
+                    loadedCapture = updated
+                    try? audioPlayback.load(capture: updated)
+                    if wasPlaying {
+                        try? audioPlayback.play(captureId: id)
+                    }
+                }
+            } catch {
+                setStatus(error.localizedDescription, isError: true)
+                return
+            }
         }
+
         persistRecentCaptures()
         refreshStatusIfIdle()
     }

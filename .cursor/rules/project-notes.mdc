@@ -1,0 +1,21 @@
+---
+description: Log substantive SimplestSampler work into the project Obsidian notes vault
+alwaysApply: true
+---
+
+# SimplestSampler project notes
+
+Vault: `SimplestSampler Notes/` (Obsidian-friendly markdown).
+
+On substantive work (features, fixes, capture behavior, helper build, releases):
+
+1. Add `- HH:MM:` bullets to today's `SimplestSampler Notes/YYYY-MM-DD.md` (Working / Not verified / Tried and failed — never mixed)
+2. Update or create a task note with YAML frontmatter and sections: Goal, Context, Changes, Verification, Not verified, Tried and failed
+3. Update `SimplestSampler Notes/Home.md` **Current state** at session end
+4. Touch `Areas/`, `Phases/`, or typed folders (`Decisions/`, `Incidents/`, `Releases/`, `Runbooks/`, `Known-Good/`) when baseline behavior changes
+
+**Evidence:** cite commands (`xcodebuild`), file paths, build results, PT behavior — never "fixed bug" without proof. Never store secrets.
+
+**Validation:** `python3 scripts/validate_notes.py` (use `--strict-all` for audits only).
+
+Read `SimplestSampler Notes/Notes System.md` for full rules. Do not edit `/Users/jamisonrabbe/Projects/OverCue`.

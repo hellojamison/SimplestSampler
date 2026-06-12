@@ -60,12 +60,14 @@ final class PreferencesStore: ObservableObject {
     }
 
     func updateWindowFrame(_ frame: NSRect) {
-        sessionState.windowFrame = WindowFrame(
+        let nextFrame = WindowFrame(
             x: frame.origin.x,
             y: frame.origin.y,
             width: frame.size.width,
             height: frame.size.height
         )
+        guard sessionState.windowFrame != nextFrame else { return }
+        sessionState.windowFrame = nextFrame
         saveSessionState()
     }
 

@@ -75,6 +75,7 @@ struct ContentView: View {
         HStack(spacing: SamplerTheme.Layout.tabBarPadding) {
             tabButton(title: "Active", tab: "recent")
             tabButton(title: "Stored", tab: "stored")
+            tabButton(title: "Simple-ish", tab: "simpleish")
         }
         .padding(SamplerTheme.Layout.tabBarPadding)
         .background(theme.tabBarBackground)
@@ -98,6 +99,24 @@ struct ContentView: View {
                     } else {
                         ForEach(Array(viewModel.storedCaptures.enumerated()), id: \.element.id) { index, capture in
                             SlotRowView(viewModel: viewModel, index: index, capture: capture, isStored: true)
+                        }
+                    }
+                } else if viewModel.activeTab == "simpleish" {
+                    SimpleishCategoryBar(viewModel: viewModel)
+
+                    if viewModel.storedCaptures.isEmpty {
+                        SlotRowView(viewModel: viewModel, index: 0, capture: nil, isStored: true)
+                    } else if viewModel.simpleishCaptures.isEmpty {
+                        SimpleishEmptyFilterRow()
+                    } else {
+                        ForEach(Array(viewModel.simpleishCaptures.enumerated()), id: \.element.id) { index, capture in
+                            SlotRowView(
+                                viewModel: viewModel,
+                                index: index,
+                                capture: capture,
+                                isStored: true,
+                                showsCategoryPicker: true
+                            )
                         }
                     }
                 } else {
@@ -393,50 +412,116 @@ struct SamplerTabButtonStyle: ButtonStyle {
 struct WindowFrameTracker: NSViewRepresentable {
     @ObservedObject var viewModel: SamplerViewModel
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            preferencesStore: viewModel.preferencesStore,
+            preferredHeight: viewModel.preferredContentHeight
+        )
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async {
-            if let window = view.window {
-                configureWindow(window)
+            Task { @MainActor in
+                context.coordinator.attach(to: view)
             }
         }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        if let window = nsView.window {
-            configureWindow(window)
+        Task { @MainActor in
+            context.coordinator.attach(to: nsView)
         }
     }
 
-    private func configureWindow(_ window: NSWindow) {
-        window.minSize = NSSize(
-            width: SamplerConstants.minWindowWidth,
-            height: SamplerConstants.minWindowHeight
-        )
-        if let frame = viewModel.preferencesStore.preferredWindowFrame(), frame.width >= SamplerConstants.minWindowWidth {
-            window.setFrame(frame, display: true)
-        } else {
-            window.setContentSize(NSSize(
-                width: SamplerConstants.defaultWindowWidth,
-                height: viewModel.preferredContentHeight()
-            ))
+    final class Coordinator: NSObject {
+        private weak var observedWindow: NSWindow?
+        private var hasAppliedInitialFrame = false
+        private let preferencesStore: PreferencesStore
+        private let preferredHeight: () -> CGFloat
+        private var pendingSave: DispatchWorkItem?
+
+        init(preferencesStore: PreferencesStore, preferredHeight: @escaping () -> CGFloat) {
+            self.preferencesStore = preferencesStore
+            self.preferredHeight = preferredHeight
         }
 
-        let preferencesStore = viewModel.preferencesStore
-        NotificationCenter.default.removeObserver(window, name: NSWindow.didMoveNotification, object: window)
-        NotificationCenter.default.removeObserver(window, name: NSWindow.didResizeNotification, object: window)
-        NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: window, queue: .main) { notification in
-            guard let trackedWindow = notification.object as? NSWindow else { return }
-            Task { @MainActor in
-                preferencesStore.updateWindowFrame(trackedWindow.frame)
+        deinit {
+            teardownObservers()
+        }
+
+        @MainActor
+        func attach(to view: NSView) {
+            guard let window = view.window else { return }
+            if observedWindow === window { return }
+
+            teardownObservers()
+            observedWindow = window
+            applyInitialConfiguration(to: window)
+            registerObservers(for: window)
+        }
+
+        @MainActor
+        private func applyInitialConfiguration(to window: NSWindow) {
+            window.minSize = NSSize(
+                width: SamplerConstants.minWindowWidth,
+                height: SamplerConstants.minWindowHeight
+            )
+
+            guard !hasAppliedInitialFrame else { return }
+            hasAppliedInitialFrame = true
+
+            if let frame = preferencesStore.preferredWindowFrame(),
+               frame.width >= SamplerConstants.minWindowWidth,
+               frame.height >= SamplerConstants.minWindowHeight {
+                window.setFrame(frame, display: true)
+            } else {
+                window.setContentSize(NSSize(
+                    width: SamplerConstants.defaultWindowWidth,
+                    height: preferredHeight()
+                ))
             }
         }
-        NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { notification in
-            guard let trackedWindow = notification.object as? NSWindow else { return }
+
+        private func registerObservers(for window: NSWindow) {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowFrameDidChange(_:)),
+                name: NSWindow.didMoveNotification,
+                object: window
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowFrameDidChange(_:)),
+                name: NSWindow.didResizeNotification,
+                object: window
+            )
+        }
+
+        private func teardownObservers() {
+            guard let window = observedWindow else { return }
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didMoveNotification, object: window)
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didResizeNotification, object: window)
+        }
+
+        @objc private func windowFrameDidChange(_ notification: Notification) {
+            guard let window = notification.object as? NSWindow else { return }
             Task { @MainActor in
-                preferencesStore.updateWindowFrame(trackedWindow.frame)
+                scheduleSave(window.frame)
             }
+        }
+
+        @MainActor
+        private func scheduleSave(_ frame: NSRect) {
+            pendingSave?.cancel()
+            let work = DispatchWorkItem { [preferencesStore] in
+                Task { @MainActor in
+                    preferencesStore.updateWindowFrame(frame)
+                }
+            }
+            pendingSave = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
         }
     }
 }

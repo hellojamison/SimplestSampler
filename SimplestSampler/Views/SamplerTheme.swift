@@ -71,6 +71,9 @@ struct SamplerThemeColors: Equatable {
     var shortcutTriggerFill: Color
     var shortcutCapturingFill: Color
     var actionButtonFill: Color
+    var renameFieldFill: Color
+    var renameFieldText: Color
+    var renameFieldBorder: Color
 
     var backgroundGradient: LinearGradient {
         LinearGradient(
@@ -116,6 +119,9 @@ enum SamplerTheme {
         static let shortcutTriggerMinWidth: CGFloat = 46
         static let shortcutTriggerPaddingH: CGFloat = 10
         static let statusBarTopPadding: CGFloat = 4
+        static let renameFieldCornerRadius: CGFloat = 6
+        static let renameFieldPaddingH: CGFloat = 7
+        static let renameFieldPaddingV: CGFloat = 4
     }
 
     static let light = SamplerThemeColors(
@@ -144,7 +150,10 @@ enum SamplerTheme {
         shortcutButtonFill: Color.white.opacity(0.86),
         shortcutTriggerFill: Color(red: 0.098, green: 0.212, blue: 0.275).opacity(0.08),
         shortcutCapturingFill: Color(red: 0.941, green: 0.725, blue: 0.737).opacity(0.35),
-        actionButtonFill: Color.white.opacity(0.86)
+        actionButtonFill: Color.white.opacity(0.86),
+        renameFieldFill: Color.white,
+        renameFieldText: Color(red: 0.098, green: 0.212, blue: 0.275),
+        renameFieldBorder: Color(red: 0.318, green: 0.494, blue: 0.420)
     )
 
     // OverCue sampler dark vars from darkTheme.css
@@ -174,7 +183,10 @@ enum SamplerTheme {
         shortcutButtonFill: Color(red: 0.329, green: 0.314, blue: 0.302).opacity(0.95),
         shortcutTriggerFill: Color.white.opacity(0.08),
         shortcutCapturingFill: Color(red: 0.541, green: 0.271, blue: 0.271).opacity(0.35),
-        actionButtonFill: Color(red: 0.329, green: 0.314, blue: 0.302).opacity(0.95)
+        actionButtonFill: Color(red: 0.329, green: 0.314, blue: 0.302).opacity(0.95),
+        renameFieldFill: Color.white.opacity(0.97),
+        renameFieldText: Color(red: 0.098, green: 0.212, blue: 0.275),
+        renameFieldBorder: Color(red: 0.549, green: 0.847, blue: 0.706)
     )
 
     static func palette(for colorScheme: ColorScheme) -> SamplerThemeColors {

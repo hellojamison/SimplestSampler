@@ -42,6 +42,8 @@ struct PTSelectedClipFile: Sendable {
     var isOnline: Bool
     var clipStartTime: String
     var srcStartSeconds: Double?
+    var sourceStartSeconds: Double?
+    var sourceEndSeconds: Double?
     var clipId: String
     var sampleRateHz: Double?
     var sessionFps: Double?
@@ -89,6 +91,11 @@ struct PTSourceWindow: Sendable {
     var startSec: Double
     var endSec: Double
     var anchorFileSec: Double
+}
+
+struct PTResolvedClipStartTime: Sendable {
+    var resolvedClipStartTime: String
+    var sessionFps: Double?
 }
 
 struct PTMultichannelSegmentEntry: Sendable {

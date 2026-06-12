@@ -3559,7 +3559,9 @@ std::string BuildSelectedClipFileJson(const FileLocationEntry& file_location,
                                       const std::optional<std::string>& clip_start_time,
                                       std::optional<double> src_start_seconds,
                                       int sample_rate_hz,
-                                      std::optional<double> session_fps) {
+                                      std::optional<double> session_fps,
+                                      std::optional<double> source_start_seconds = std::nullopt,
+                                      std::optional<double> source_end_seconds = std::nullopt) {
   std::ostringstream json;
   json << '{'
        << "\"file_path\":\"" << JsonEscape(file_location.path) << "\","
@@ -3587,12 +3589,29 @@ std::string BuildSelectedClipFileJson(const FileLocationEntry& file_location,
     value << std::fixed << std::setprecision(6) << *session_fps;
     json << ",\"session_fps\":" << value.str();
   }
+  if (source_start_seconds.has_value()) {
+    std::ostringstream value;
+    value << std::fixed << std::setprecision(9) << *source_start_seconds;
+    json << ",\"source_start_seconds\":" << value.str();
+  }
+  if (source_end_seconds.has_value()) {
+    std::ostringstream value;
+    value << std::fixed << std::setprecision(9) << *source_end_seconds;
+    json << ",\"source_end_seconds\":" << value.str();
+  }
   json << '}';
   return json.str();
 }
 
 std::string BuildSelectedClipFileJson(const FileLocationEntry& file_location, std::string_view clip_name) {
-  return BuildSelectedClipFileJson(file_location, clip_name, std::nullopt, std::nullopt, std::nullopt, 0, std::nullopt);
+  return BuildSelectedClipFileJson(
+      file_location,
+      clip_name,
+      std::nullopt,
+      std::nullopt,
+      std::nullopt,
+      0,
+      std::nullopt);
 }
 
 std::string BuildSelectedClipSegmentsJson(std::string_view track_name,
@@ -4121,6 +4140,63 @@ std::optional<FileLocationEntry> ResolveFileLocationByNormalizedName(
     return std::nullopt;
   }
   return *best;
+}
+
+bool SelectedClipSegmentHasSourceWindow(const SelectedClipSegmentInfo& segment) {
+  return segment.source_start_seconds.has_value()
+      && segment.source_end_seconds.has_value()
+      && std::isfinite(*segment.source_start_seconds)
+      && std::isfinite(*segment.source_end_seconds)
+      && *segment.source_end_seconds > *segment.source_start_seconds;
+}
+
+int CountSelectedClipSegmentsWithSourceWindows(const std::vector<SelectedClipSegmentInfo>& segments) {
+  int count = 0;
+  for (const auto& segment : segments) {
+    if (SelectedClipSegmentHasSourceWindow(segment)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+bool ShouldPreferSessionExportSegments(
+    const std::vector<SelectedClipSegmentInfo>& current,
+    const std::vector<SelectedClipSegmentInfo>& export_segments) {
+  if (export_segments.empty()) {
+    return false;
+  }
+  if (current.empty()) {
+    return true;
+  }
+
+  const int current_source_count = CountSelectedClipSegmentsWithSourceWindows(current);
+  const int export_source_count = CountSelectedClipSegmentsWithSourceWindows(export_segments);
+  if (export_source_count > current_source_count) {
+    return true;
+  }
+  if (export_source_count > 0 && current_source_count == 0) {
+    return true;
+  }
+  if (export_segments.size() > current.size()) {
+    return true;
+  }
+  if (current.size() == 1 && export_segments.size() == 1) {
+    const bool current_is_export = Trimmed(current.front().resolution_source) == "session_export";
+    const bool export_is_export = Trimmed(export_segments.front().resolution_source) == "session_export";
+    if (!current_is_export && export_is_export) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void MaybeAssignPreferredSessionExportSegments(
+    std::vector<SelectedClipSegmentInfo>& segments,
+    std::vector<SelectedClipSegmentInfo>&& export_segments) {
+  if (ShouldPreferSessionExportSegments(segments, export_segments)) {
+    segments = std::move(export_segments);
+  }
 }
 
 std::vector<SelectedClipSegmentInfo> BuildSelectedClipSegmentsFromSessionExport(
@@ -9141,9 +9217,7 @@ int RunGetSelectedClipSegments() {
         sample_rate_hz,
         session_fps,
         rate_info);
-    if (export_segments.size() == 1) {
-      segments = std::move(export_segments);
-    }
+    MaybeAssignPreferredSessionExportSegments(segments, std::move(export_segments));
   } catch (const std::exception&) {
   }
 
@@ -9279,6 +9353,7 @@ int RunGetSelectedClipSegments() {
   const bool should_try_session_export_fallback =
       segments.empty()
       || segments.size() == 1
+      || CountSelectedClipSegmentsWithSourceWindows(segments) == 0
       || (!selected_clip_names.empty() && segments.size() < selected_clip_names.size());
   if (should_try_session_export_fallback) {
     try {
@@ -9306,11 +9381,7 @@ int RunGetSelectedClipSegments() {
           sample_rate_hz,
           session_fps,
           rate_info);
-      if (segments.size() == 1 && export_segments.size() == 1) {
-        segments = std::move(export_segments);
-      } else if (export_segments.size() > segments.size()) {
-        segments = std::move(export_segments);
-      }
+      MaybeAssignPreferredSessionExportSegments(segments, std::move(export_segments));
     } catch (const std::exception&) {
     }
   }
@@ -10896,6 +10967,101 @@ std::string ExecuteGetSelectedClipFile(PtslClient& client) {
     }
   }
 
+  std::optional<double> source_start_seconds;
+  std::optional<double> source_end_seconds;
+  if (has_current_selection) {
+    try {
+      const auto selected_tracks = client.GetSelectedTracks();
+      if (!selected_tracks.empty()) {
+        const auto selection_start = SelectTimelineReferenceTime(current_selection);
+        const auto selection_end = [&]() {
+          const auto normalized_out = NormalizeComparableTimecode(current_selection.out_time);
+          if (!normalized_out.empty()) {
+            return normalized_out;
+          }
+          return selection_start;
+        }();
+        if (!Trimmed(selection_start).empty() && !Trimmed(selection_end).empty() && selection_start != selection_end) {
+          const auto selection_start_subframes = TimecodeStringToSubframes(selection_start, rate_info);
+          const auto selection_end_subframes = std::max(
+              selection_start_subframes,
+              TimecodeStringToSubframes(selection_end, rate_info));
+          const auto session_edl = client.ExportSessionInfoTextForTrackEdls();
+
+          std::vector<FileLocationEntry> preferred_locations;
+          preferred_locations.reserve(timeline_locations.size() + clips_list_locations.size());
+          preferred_locations.insert(preferred_locations.end(), timeline_locations.begin(), timeline_locations.end());
+          preferred_locations.insert(preferred_locations.end(), clips_list_locations.begin(), clips_list_locations.end());
+
+          std::unordered_map<std::string, FileLocationEntry> file_locations_by_id;
+          const auto remember_location = [&](const FileLocationEntry& entry) {
+            if (Trimmed(entry.file_id).empty() || Trimmed(entry.path).empty()) {
+              return;
+            }
+            const auto existing = file_locations_by_id.find(entry.file_id);
+            const int score = (entry.is_online ? 100 : 0) + 10 + (NormalizeSelectedClipName(entry.path).empty() ? 0 : 1);
+            if (existing == file_locations_by_id.end()) {
+              file_locations_by_id.emplace(entry.file_id, entry);
+              return;
+            }
+            const auto& current = existing->second;
+            const int current_score =
+                (current.is_online ? 100 : 0) + 10 + (NormalizeSelectedClipName(current.path).empty() ? 0 : 1);
+            if (score > current_score) {
+              existing->second = entry;
+            }
+          };
+          for (const auto& entry : preferred_locations) {
+            remember_location(entry);
+          }
+          try {
+            const auto all_locations = client.GetFileLocations({});
+            preferred_locations.insert(preferred_locations.end(), all_locations.begin(), all_locations.end());
+            for (const auto& entry : all_locations) {
+              remember_location(entry);
+            }
+          } catch (const std::exception&) {
+          }
+
+          auto export_segments = BuildSelectedClipSegmentsFromSessionExport(
+              session_edl,
+              selected_tracks.front().name,
+              selection_start_subframes,
+              selection_end_subframes,
+              {},
+              preferred_locations,
+              clips,
+              file_locations_by_id,
+              sample_rate_hz,
+              session_fps,
+              rate_info);
+          if (!export_segments.empty()) {
+            const auto& lead = export_segments.front();
+            if (lead.source_start_seconds.has_value()) {
+              source_start_seconds = lead.source_start_seconds;
+            }
+            if (lead.source_end_seconds.has_value()) {
+              source_end_seconds = lead.source_end_seconds;
+            }
+            if (!clip_start_time.has_value() && !Trimmed(lead.clip_start_time).empty()) {
+              clip_start_time = lead.clip_start_time;
+            }
+            if (!src_start_seconds.has_value() && lead.src_start_seconds.has_value()) {
+              src_start_seconds = lead.src_start_seconds;
+            }
+            if (!clip_id.has_value() && !Trimmed(lead.clip_id).empty()) {
+              clip_id = lead.clip_id;
+            }
+            if (!Trimmed(lead.clip_name).empty()) {
+              clip_name = ChooseMoreSpecificClipName(clip_name, lead.clip_name);
+            }
+          }
+        }
+      }
+    } catch (const std::exception&) {
+    }
+  }
+
   return BuildSelectedClipFileJson(
       *selected_file_location,
       clip_name,
@@ -10903,7 +11069,9 @@ std::string ExecuteGetSelectedClipFile(PtslClient& client) {
       clip_start_time,
       src_start_seconds,
       sample_rate_hz,
-      session_fps);
+      session_fps,
+      source_start_seconds,
+      source_end_seconds);
 }
 
 std::string ExecuteGetSelectedClipSegments(PtslClient& client) {
@@ -11047,9 +11215,7 @@ std::string ExecuteGetSelectedClipSegments(PtslClient& client) {
         sample_rate_hz,
         session_fps,
         rate_info);
-    if (export_segments.size() == 1) {
-      segments = std::move(export_segments);
-    }
+    MaybeAssignPreferredSessionExportSegments(segments, std::move(export_segments));
   } catch (const std::exception&) {
   }
 
@@ -11185,6 +11351,7 @@ std::string ExecuteGetSelectedClipSegments(PtslClient& client) {
   const bool should_try_session_export_fallback =
       segments.empty()
       || segments.size() == 1
+      || CountSelectedClipSegmentsWithSourceWindows(segments) == 0
       || (!selected_clip_names.empty() && segments.size() < selected_clip_names.size());
   if (should_try_session_export_fallback) {
     try {
@@ -11212,11 +11379,7 @@ std::string ExecuteGetSelectedClipSegments(PtslClient& client) {
           sample_rate_hz,
           session_fps,
           rate_info);
-      if (segments.size() == 1 && export_segments.size() == 1) {
-        segments = std::move(export_segments);
-      } else if (export_segments.size() > segments.size()) {
-        segments = std::move(export_segments);
-      }
+      MaybeAssignPreferredSessionExportSegments(segments, std::move(export_segments));
     } catch (const std::exception&) {
     }
   }

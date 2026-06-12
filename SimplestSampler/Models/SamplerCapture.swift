@@ -1,4 +1,10 @@
 import Foundation
+import UniformTypeIdentifiers
+
+extension UTType {
+    static let simplestSamplerStoredCapture = UTType(exportedAs: "com.hellojamison.simplestsampler.stored-capture-id")
+    static let simplestSamplerActiveSlotIndex = UTType(exportedAs: "com.hellojamison.simplestsampler.active-slot-index")
+}
 
 struct SamplerCapture: Codable, Identifiable, Equatable, Sendable {
     var id: String
@@ -14,6 +20,7 @@ struct SamplerCapture: Codable, Identifiable, Equatable, Sendable {
     var saved: Bool
     var sourceIdentity: String
     var managedByApp: Bool
+    var categoryId: String?
 
     init(
         id: String,
@@ -28,7 +35,8 @@ struct SamplerCapture: Codable, Identifiable, Equatable, Sendable {
         capturedAt: TimeInterval = Date().timeIntervalSince1970 * 1000,
         saved: Bool = false,
         sourceIdentity: String = "",
-        managedByApp: Bool = false
+        managedByApp: Bool = false,
+        categoryId: String? = nil
     ) {
         self.id = id
         self.filePath = filePath
@@ -43,6 +51,7 @@ struct SamplerCapture: Codable, Identifiable, Equatable, Sendable {
         self.saved = saved
         self.sourceIdentity = sourceIdentity.isEmpty ? Self.buildSourceIdentity(filePath: filePath) : sourceIdentity
         self.managedByApp = managedByApp
+        self.categoryId = categoryId
     }
 
     static func buildSourceIdentity(filePath: String) -> String {
@@ -86,6 +95,27 @@ struct SamplerCapture: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+struct StoredCategory: Codable, Identifiable, Equatable, Sendable {
+    var id: String
+    var name: String
+}
+
+enum SimpleishCategoryFilter {
+    static let all = "__all__"
+    static let uncategorized = "__uncategorized__"
+
+    static func matches(capture: SamplerCapture, filter: String) -> Bool {
+        switch filter {
+        case all:
+            return true
+        case uncategorized:
+            return (capture.categoryId ?? "").isEmpty
+        default:
+            return capture.categoryId == filter
+        }
+    }
+}
+
 struct SamplerSessionState: Codable, Equatable {
     var recentCaptures: [SamplerCapture?]
     var storedCaptures: [SamplerCapture]
@@ -94,6 +124,8 @@ struct SamplerSessionState: Codable, Equatable {
     var windowFrame: WindowFrame?
     /// Visible active slot rows; nil in older saved sessions defaults to 4 on load.
     var activeSlotCount: Int?
+    /// Simple-ish tab category filter; nil in older sessions defaults to all.
+    var simpleishCategoryFilter: String?
 
     static let empty = SamplerSessionState(
         recentCaptures: Array(repeating: nil, count: SamplerConstants.defaultActiveSlots),
@@ -101,7 +133,8 @@ struct SamplerSessionState: Codable, Equatable {
         loadedCaptureId: "",
         activeTab: "recent",
         windowFrame: nil,
-        activeSlotCount: SamplerConstants.defaultActiveSlots
+        activeSlotCount: SamplerConstants.defaultActiveSlots,
+        simpleishCategoryFilter: SimpleishCategoryFilter.all
     )
 }
 

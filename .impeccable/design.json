@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-11T00:00:00.000Z",
+  "title": "Design System: SimplestSampler",
+  "extensions": {
+    "colorMeta": {
+      "light-accent": {
+        "role": "primary",
+        "displayName": "Sage Bench",
+        "canonical": "oklch(58% 0.05 155)",
+        "tonalRamp": [
+          "oklch(25% 0.04 155)",
+          "oklch(32% 0.045 155)",
+          "oklch(40% 0.048 155)",
+          "oklch(48% 0.05 155)",
+          "oklch(58% 0.05 155)",
+          "oklch(68% 0.045 155)",
+          "oklch(78% 0.04 155)",
+          "oklch(90% 0.03 155)"
+        ]
+      },
+      "dark-accent": {
+        "role": "primary",
+        "displayName": "Workshop Teal",
+        "canonical": "oklch(48% 0.1 160)",
+        "tonalRamp": [
+          "oklch(22% 0.06 160)",
+          "oklch(28% 0.08 160)",
+          "oklch(35% 0.09 160)",
+          "oklch(42% 0.095 160)",
+          "oklch(48% 0.1 160)",
+          "oklch(55% 0.09 160)",
+          "oklch(65% 0.07 160)",
+          "oklch(78% 0.05 160)"
+        ]
+      },
+      "light-capture-top": {
+        "role": "secondary",
+        "displayName": "Rose Capture Top",
+        "canonical": "oklch(82% 0.08 15)",
+        "tonalRamp": [
+          "oklch(35% 0.1 15)",
+          "oklch(42% 0.11 15)",
+          "oklch(50% 0.1 15)",
+          "oklch(58% 0.095 15)",
+          "oklch(66% 0.09 15)",
+          "oklch(74% 0.085 15)",
+          "oklch(82% 0.08 15)",
+          "oklch(90% 0.06 15)"
+        ]
+      },
+      "dark-bg-top": {
+        "role": "neutral",
+        "displayName": "Workshop Floor Top",
+        "canonical": "oklch(28% 0.01 75)",
+        "tonalRamp": [
+          "oklch(12% 0.008 75)",
+          "oklch(16% 0.009 75)",
+          "oklch(20% 0.01 75)",
+          "oklch(24% 0.01 75)",
+          "oklch(28% 0.01 75)",
+          "oklch(35% 0.012 75)",
+          "oklch(45% 0.014 75)",
+          "oklch(58% 0.016 75)"
+        ]
+      },
+      "light-text": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(28% 0.04 230)",
+        "tonalRamp": [
+          "oklch(15% 0.035 230)",
+          "oklch(20% 0.038 230)",
+          "oklch(25% 0.04 230)",
+          "oklch(28% 0.04 230)",
+          "oklch(40% 0.035 230)",
+          "oklch(55% 0.03 230)",
+          "oklch(70% 0.02 230)",
+          "oklch(85% 0.01 230)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "toolbar": {
+        "displayName": "Toolbar",
+        "purpose": "Primary actions: Play, Capture, Stop."
+      },
+      "body": {
+        "displayName": "Slot name",
+        "purpose": "Slot titles and active tab labels."
+      },
+      "mono-meta": {
+        "displayName": "Duration mono",
+        "purpose": "Time/duration readouts in slot rows only."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.25, 0.1, 0.25, 1)",
+        "purpose": "Default macOS-like state transitions when motion is added."
+      }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Capture Button",
+      "kind": "button",
+      "refersTo": "button-capture",
+      "description": "Primary capture action; rose gradient, only warm gradient in the UI.",
+      "html": "<button class=\"ds-btn-capture\">Capture</button>",
+      "css": ".ds-btn-capture { background: linear-gradient(180deg, #F0B9BC 0%, #D8898F 100%); color: #193646; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; font-size: 13px; font-weight: 600; padding: 9px 16px; border: none; border-radius: 8px; cursor: pointer; transition: opacity 0.15s cubic-bezier(0.25, 0.1, 0.25, 1); } .ds-btn-capture:hover { opacity: 0.92; } .ds-btn-capture:focus-visible { outline: 2px solid #6F8F80; outline-offset: 2px; } .ds-btn-capture:active { opacity: 0.8; } .ds-btn-capture:disabled { opacity: 0.45; cursor: not-allowed; }"
+    },
+    {
+      "name": "Toolbar Button",
+      "kind": "button",
+      "refersTo": "button-toolbar",
+      "description": "Secondary toolbar actions (Play, Stop).",
+      "html": "<button class=\"ds-btn-toolbar\">Play</button>",
+      "css": ".ds-btn-toolbar { background: rgba(255, 255, 255, 0.92); color: #193646; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; font-size: 13px; font-weight: 600; padding: 9px 12px; border: 1px solid #274E5E24; border-radius: 8px; cursor: pointer; transition: background 0.15s, opacity 0.15s; } .ds-btn-toolbar:hover { background: #fff; } .ds-btn-toolbar:focus-visible { outline: 2px solid #6F8F80; outline-offset: 2px; } .ds-btn-toolbar:active { background: rgba(255, 255, 255, 0.7); }"
+    },
+    {
+      "name": "Slot Row",
+      "kind": "card",
+      "refersTo": "slot-row",
+      "description": "Default capture slot row in the Active/Stored list.",
+      "html": "<div class=\"ds-slot-row\"><span class=\"ds-slot-play\">▶</span><div class=\"ds-slot-meta\"><span class=\"ds-slot-name\">Kick hit</span><span class=\"ds-slot-duration\">0:42</span></div></div>",
+      "css": ".ds-slot-row { display: flex; align-items: center; gap: 9px; background: #F8FCFDEA; color: #193646; padding: 6px 9px; border-radius: 11px; border: 1px solid #274E5E24; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; } .ds-slot-play { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.88); border-radius: 6px; font-size: 10px; } .ds-slot-meta { display: flex; flex-direction: column; gap: 2px; } .ds-slot-name { font-size: 13px; font-weight: 600; } .ds-slot-duration { font-size: 10px; font-weight: 500; color: #5D7684; font-family: 'SF Mono', ui-monospace, Menlo, monospace; }"
+    },
+    {
+      "name": "Slot Row Selected",
+      "kind": "card",
+      "refersTo": "slot-row-selected",
+      "description": "Selected slot target state.",
+      "html": "<div class=\"ds-slot-row ds-slot-row--selected\"><span class=\"ds-slot-play\">▶</span><div class=\"ds-slot-meta\"><span class=\"ds-slot-name\">Kick hit</span><span class=\"ds-slot-duration\">0:42</span></div></div>",
+      "css": ".ds-slot-row--selected { background: #6F817AEB; color: #F5FFF9; border-color: transparent; } .ds-slot-row--selected .ds-slot-duration { color: rgba(245, 255, 249, 0.72); }"
+    },
+    {
+      "name": "Chip Surface",
+      "kind": "chip",
+      "refersTo": "chip-surface",
+      "description": "Output bar and compact filter chips.",
+      "html": "<div class=\"ds-chip\"><span class=\"ds-chip-label\">Output</span></div>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 9px; background: rgba(255, 255, 255, 0.55); border: 1px solid #274E5E24; border-radius: 8px; padding: 5px 9px; min-height: 26px; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; } .ds-chip-label { font-size: 11px; font-weight: 600; color: #5D7684; }"
+    },
+    {
+      "name": "Tab Active",
+      "kind": "nav",
+      "refersTo": "tab-active",
+      "description": "Active tab pill inside capsule tab bar.",
+      "html": "<nav class=\"ds-tabs\"><button class=\"ds-tab ds-tab--active\">Active</button><button class=\"ds-tab\">Stored</button></nav>",
+      "css": ".ds-tabs { display: inline-flex; gap: 4px; padding: 4px; background: rgba(255,255,255,0.45); border-radius: 999px; } .ds-tab { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; font-size: 12px; font-weight: 600; padding: 6px 12px; border: none; border-radius: 999px; background: transparent; color: #193646; cursor: pointer; } .ds-tab--active { background: #C7D8CF; } .ds-tab:focus-visible { outline: 2px solid #6F8F80; outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Session Bench",
+    "overview": "SimplestSampler looks and feels like dependable bench gear in an edit suite: warm neutrals, soft gradients, rounded continuous corners, and a single confident teal accent. The layout is a vertical stack with no nested cards or decorative chrome.",
+    "keyCharacteristics": [
+      "Warm tinted neutrals (not cool gray SaaS defaults)",
+      "System SF Pro typography at 10–15px scale",
+      "Tonal layering and 1px hairline borders instead of drop shadows",
+      "Continuous corner radii (8px chips, 11px rows, 12px panels)",
+      "Dual theme with shared semantic roles",
+      "Capture gradient as the sole high-saturation warm accent"
+    ],
+    "rules": [
+      {
+        "name": "The One Warm Gradient Rule",
+        "body": "Only Capture (and capturing shortcut state) may use the rose gradient. No other buttons, badges, or headers get warm gradients.",
+        "section": "colors"
+      },
+      {
+        "name": "The Teal Sparingly Rule",
+        "body": "Full saturated accent fill appears on selected slot rows and key positive actions — not on every icon or label.",
+        "section": "colors"
+      },
+      {
+        "name": "The System Scale Rule",
+        "body": "Stay within 9–15px for working UI. No hero type, no tracked uppercase eyebrows.",
+        "section": "typography"
+      },
+      {
+        "name": "The No-Shadow Rule",
+        "body": "Do not add drop shadows to slots, chips, or buttons. If something needs emphasis, change fill or border contrast.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use SamplerTheme.swift as the single source of truth for SwiftUI colors, spacing, and radii.",
+      "Do mirror dark-theme hex values in SimplestSampler_AS_GUI.mm when changing the AAX panel.",
+      "Do keep Capture as the only rose-gradient control.",
+      "Do use 1px theme.border strokes on chips and panels for definition without shadow.",
+      "Do respect macOS system light/dark/system appearance via SamplerThemeMode."
+    ],
+    "donts": [
+      "Don't introduce card-in-card layouts or identical icon+heading+text grids.",
+      "Don't use purple gradients, glassmorphism, gradient text, or neon accent floods.",
+      "Don't add marketing-page tropes (tracked uppercase eyebrows, hero metrics, decorative motion).",
+      "Don't let the AAX plugin drift to generic Avid slider chrome — keep custom slot-bank GUI.",
+      "Don't use drop shadows or side-stripe accent borders on slot rows."
+    ]
+  }
+}

@@ -24,6 +24,7 @@ Full OverCue-equivalent Pro Tools sampler capture in Swift (direct + multichanne
 - Dev binary: `bin/mac-arm64/ptsl_markers_helper` (~15 MB, SimplestSampler PTSL identity)
 - Static decision-tree review matches OverCue paths (direct → multichannel → consolidate)
 - **Live PT capture working** (user report, 2026-06-06) — Capture succeeds in real Pro Tools session
+- **PT 26.4 direct capture** (user verified, 2026-06-10) — session-export resolve; no consolidate
 
 ## Not verified
 
@@ -32,7 +33,11 @@ Full OverCue-equivalent Pro Tools sampler capture in Swift (direct + multichanne
 
 ## Changes (2026-06-10)
 
-- `ProToolsCaptureService.resolveSourceFromSelection`: sole-segment gate, no full-clip fallback when edit range active, PT 25+ consolidate when direct resolve nil (OverCue parity)
+- Native helper: `ExportSessionInfoTextForTrackEdls` + `GetClipList` paired in `--get-selected-clip-segments`; prefer session-export segments when playlist rows lack `source_start/end`; `--get-selected-clip-file` returns `source_start_seconds`/`source_end_seconds` for modern PT
+- Swift: use session-export playback window from clip-file JSON; prefer `resolution_source == session_export` segments; log when segments helper is skipped
+- `ProToolsCaptureService.resolveSourceFromSelection`: sole-segment gate, no full-clip fallback when edit range active
+- `PTTimecodeMath.ptslReleaseMajor`: normalize `2025.10.0` PTSL strings; PT 25+ blocks consolidate fallback (direct resolve only)
+- `resolveClipStartTime` helper + segment-before-clip priority for edit-range capture
 - First-time helper build duration / CMake on fresh clone
 - Accessibility consolidate fallback with real PT session
 

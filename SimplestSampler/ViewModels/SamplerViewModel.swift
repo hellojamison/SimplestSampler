@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
 final class SamplerViewModel: ObservableObject {
     @Published var recentCaptures: [SamplerCapture?]
     @Published var storedCaptures: [SamplerCapture]
+    @Published var storedCategories: [StoredCategory] = []
+    @Published var simpleishCategoryFilter = SimpleishCategoryFilter.all
     @Published var selectedCaptureId = ""
     @Published var selectedCaptureSource = "recent"
     @Published var loadedCaptureId = ""
@@ -35,6 +37,10 @@ final class SamplerViewModel: ObservableObject {
         activeTab == "recent" && (canAddActiveSlot || canRemoveActiveSlot)
     }
 
+    var simpleishCaptures: [SamplerCapture] {
+        storedCaptures.filter { SimpleishCategoryFilter.matches(capture: $0, filter: simpleishCategoryFilter) }
+    }
+
     let preferencesStore: PreferencesStore
     let audioPlayback: AudioPlaybackService
     private let shortcutManager = GlobalShortcutManager()
@@ -42,6 +48,7 @@ final class SamplerViewModel: ObservableObject {
     private var nextRecentSequence = 1
     private var loadedCapture: SamplerCapture?
     private var captureTask: Task<Void, Never>?
+    private var pluginBridgeWatcher: PluginBridgeWatcher?
     private var cancellables = Set<AnyCancellable>()
 
     var outputDeviceUID: String {
@@ -61,6 +68,7 @@ final class SamplerViewModel: ObservableObject {
         storedCaptures = []
         loadedCaptureId = preferencesStore.sessionState.loadedCaptureId
         activeTab = preferencesStore.sessionState.activeTab
+        simpleishCategoryFilter = preferencesStore.sessionState.simpleishCategoryFilter ?? SimpleishCategoryFilter.all
         syncRecentCapturesToActiveSlotCount()
 
         audioPlayback.onPlaybackFinished = { [weak self] in
@@ -86,6 +94,8 @@ final class SamplerViewModel: ObservableObject {
             }
         }
         registerShortcuts()
+        syncPluginBridgeFromApp()
+        startPluginBridgeWatcher()
         applyThemeAppearance()
     }
 
@@ -125,11 +135,93 @@ final class SamplerViewModel: ObservableObject {
     }
 
     func setActiveTab(_ tab: String) {
-        activeTab = tab == "stored" ? "stored" : "recent"
+        switch tab {
+        case "stored":
+            activeTab = "stored"
+        case "simpleish":
+            activeTab = "simpleish"
+        default:
+            activeTab = "recent"
+        }
         preferencesStore.sessionState.activeTab = activeTab
         preferencesStore.saveSessionState()
         reconcileSelection()
         refreshStatusIfIdle()
+    }
+
+    func setSimpleishCategoryFilter(_ filter: String) {
+        simpleishCategoryFilter = filter
+        preferencesStore.sessionState.simpleishCategoryFilter = filter
+        preferencesStore.saveSessionState()
+        reconcileSelection()
+        refreshStatusIfIdle()
+    }
+
+    func addCategory(name: String) {
+        do {
+            let category = try StoredLibraryService.addCategory(name: name)
+            storedCategories.append(category)
+            setStatus("Added category \(category.name).")
+        } catch {
+            setStatus(error.localizedDescription, isError: true)
+        }
+    }
+
+    func renameCategory(id: String, name: String) {
+        do {
+            guard let updated = try StoredLibraryService.renameCategory(id: id, name: name) else { return }
+            if let index = storedCategories.firstIndex(where: { $0.id == id }) {
+                storedCategories[index] = updated
+            }
+            setStatus("Renamed category to \(updated.name).")
+        } catch {
+            setStatus(error.localizedDescription, isError: true)
+        }
+    }
+
+    func deleteCategory(id: String) {
+        do {
+            guard try StoredLibraryService.deleteCategory(id: id) else { return }
+            storedCategories.removeAll { $0.id == id }
+            for index in storedCaptures.indices where storedCaptures[index].categoryId == id {
+                storedCaptures[index].categoryId = nil
+            }
+            if simpleishCategoryFilter == id {
+                setSimpleishCategoryFilter(SimpleishCategoryFilter.all)
+            }
+            reconcileSelection()
+            setStatus("Deleted category.")
+        } catch {
+            setStatus(error.localizedDescription, isError: true)
+        }
+    }
+
+    func setCaptureCategory(captureId: String, categoryId: String?) {
+        do {
+            guard let updated = try StoredLibraryService.setCaptureCategory(captureId: captureId, categoryId: categoryId) else {
+                return
+            }
+            if let index = storedCaptures.firstIndex(where: { $0.id == captureId }) {
+                storedCaptures[index] = updated
+            }
+            if loadedCaptureId == captureId {
+                loadedCapture = updated
+            }
+            reconcileSelection()
+            let label = categoryLabel(for: updated.categoryId)
+            setStatus("Moved \(updated.slotLabel) to \(label).")
+        } catch {
+            setStatus(error.localizedDescription, isError: true)
+        }
+    }
+
+    func categoryLabel(for categoryId: String?) -> String {
+        guard let categoryId, !categoryId.isEmpty else { return "Uncategorized" }
+        return storedCategories.first(where: { $0.id == categoryId })?.name ?? "Uncategorized"
+    }
+
+    func categoryLabel(for capture: SamplerCapture) -> String {
+        categoryLabel(for: capture.categoryId)
     }
 
     func selectCapture(id: String, source: String) {
@@ -160,7 +252,10 @@ final class SamplerViewModel: ObservableObject {
 
     func playSelectedCapture() {
         guard let capture = selectedCapture() else {
-            setStatus(activeTab == "stored" ? "No stored sample is selected yet." : "No sampler slot is selected yet.", isError: true)
+            let message = (activeTab == "stored" || activeTab == "simpleish")
+                ? "No stored sample is selected yet."
+                : "No sampler slot is selected yet."
+            setStatus(message, isError: true)
             return
         }
         playCapture(capture, source: selectedCaptureSource)
@@ -232,6 +327,18 @@ final class SamplerViewModel: ObservableObject {
         }
         selectCapture(id: capture.id, source: "recent")
         playCapture(capture, source: "recent")
+    }
+
+    func moveActiveSlot(from sourceIndex: Int, to destinationIndex: Int) {
+        guard sourceIndex != destinationIndex,
+              sourceIndex >= 0, sourceIndex < activeSlotCount,
+              destinationIndex >= 0, destinationIndex < activeSlotCount else { return }
+
+        let moved = recentCaptures.remove(at: sourceIndex)
+        recentCaptures.insert(moved, at: destinationIndex)
+        persistRecentCaptures()
+        reconcileSelection()
+        refreshStatusIfIdle()
     }
 
     func deleteActiveSlot(at index: Int) {
@@ -524,6 +631,38 @@ final class SamplerViewModel: ObservableObject {
 
     private func registerShortcuts() {
         shortcutManager.updateBindings(preferencesStore.preferences.shortcutBindings)
+        syncPluginBridgeFromApp()
+    }
+
+    private func startPluginBridgeWatcher() {
+        pluginBridgeWatcher = PluginBridgeWatcher { [weak self] in
+            self?.reloadFromPluginBridge()
+        }
+    }
+
+    private func syncPluginBridgeFromApp() {
+        PluginBridgeService.syncFromApp(
+            recentCaptures: recentCaptures,
+            activeSlotCount: activeSlotCount,
+            preferences: preferencesStore.preferences
+        )
+    }
+
+    private func reloadFromPluginBridge() {
+        let document = PluginBridgeService.loadDocument()
+        guard PluginBridgeService.mergePluginCaptures(
+            into: &recentCaptures,
+            activeSlotCount: activeSlotCount,
+            storedCaptures: storedCaptures,
+            document: document
+        ) else {
+            return
+        }
+
+        persistRecentCaptures()
+        reconcileSelection()
+        refreshStatusIfIdle()
+        setStatus("Updated Active slots from AudioSuite capture.")
     }
 
     private func performCapture(targetSlotIndex: Int?) {
@@ -631,6 +770,14 @@ final class SamplerViewModel: ObservableObject {
     private func reloadStoredLibrary() {
         let metadata = StoredLibraryService.loadLibrary()
         storedCaptures = metadata.captures
+        storedCategories = metadata.categories
+        if simpleishCategoryFilter != SimpleishCategoryFilter.all,
+           simpleishCategoryFilter != SimpleishCategoryFilter.uncategorized,
+           !storedCategories.contains(where: { $0.id == simpleishCategoryFilter }) {
+            simpleishCategoryFilter = SimpleishCategoryFilter.all
+            preferencesStore.sessionState.simpleishCategoryFilter = simpleishCategoryFilter
+            preferencesStore.saveSessionState()
+        }
         nextRecentSequence = max(nextRecentSequence, recentCaptures.compactMap { $0?.id }.compactMap { parseSequence($0) }.max() ?? 0) + 1
 
         for index in recentCaptures.indices {
@@ -651,12 +798,14 @@ final class SamplerViewModel: ObservableObject {
         preferencesStore.sessionState.recentCaptures = recentCaptures
         preferencesStore.sessionState.activeSlotCount = activeSlotCount
         preferencesStore.saveSessionState()
+        syncPluginBridgeFromApp()
     }
 
     private func persistSessionState() {
         preferencesStore.sessionState.recentCaptures = recentCaptures
         preferencesStore.sessionState.activeSlotCount = activeSlotCount
         preferencesStore.saveSessionState()
+        syncPluginBridgeFromApp()
     }
 
     private func syncRecentCapturesToActiveSlotCount() {
@@ -703,11 +852,12 @@ final class SamplerViewModel: ObservableObject {
     }
 
     private func reconcileSelection() {
-        if activeTab == "stored" {
-            if !storedCaptures.contains(where: { $0.id == selectedCaptureId }) {
-                selectedCaptureId = storedCaptures.first?.id ?? ""
-                selectedCaptureSource = "stored"
+        if activeTab == "stored" || activeTab == "simpleish" {
+            let visibleCaptures = activeTab == "simpleish" ? simpleishCaptures : storedCaptures
+            if !visibleCaptures.contains(where: { $0.id == selectedCaptureId }) {
+                selectedCaptureId = visibleCaptures.first?.id ?? ""
             }
+            selectedCaptureSource = "stored"
             return
         }
 

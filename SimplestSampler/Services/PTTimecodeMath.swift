@@ -62,13 +62,23 @@ enum PTTimecodeMath {
         return ParsedPtslProtocol(major: major, minor: minor, revision: revision)
     }
 
-    static func isLegacyPre25Protocol(_ protocolString: String) -> Bool {
-        guard let parsed = parsePtslProtocolVersion(protocolString) else { return false }
-        return parsed.major < 25
+    /// PTSL reports `2025.10.0` style versions; normalize to release major `25`.
+    static func ptslReleaseMajor(_ protocolString: String) -> Int? {
+        guard let parsed = parsePtslProtocolVersion(protocolString) else { return nil }
+        if parsed.major >= 2000 && parsed.major < 2100 {
+            return parsed.major - 2000
+        }
+        return parsed.major
     }
 
+    static func isLegacyPre25Protocol(_ protocolString: String) -> Bool {
+        guard let releaseMajor = ptslReleaseMajor(protocolString) else { return false }
+        return releaseMajor < 25
+    }
+
+    /// PT 25+ should resolve directly via session export + clip list; consolidate is legacy backup only.
     static func shouldAvoidConsolidateFallback(_ protocolString: String) -> Bool {
-        guard let parsed = parsePtslProtocolVersion(protocolString) else { return false }
-        return parsed.major < 25
+        guard let releaseMajor = ptslReleaseMajor(protocolString) else { return true }
+        return releaseMajor >= 25
     }
 }

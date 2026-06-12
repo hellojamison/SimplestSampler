@@ -83,6 +83,7 @@ final class PTSLHelperClient: @unchecked Sendable {
                 || message.contains("no selected clips were found")
                 || message.contains("select the clips on one track first")
                 || message.contains("link track and edit selection") {
+                CaptureDebugLogger.log("selected clip segments skipped", context: ["message": error.localizedDescription])
                 return nil
             }
             throw error
@@ -91,6 +92,25 @@ final class PTSLHelperClient: @unchecked Sendable {
 
     func consolidateClip(helperErrorTitle: String = "Pro Tools consolidate error") async throws {
         _ = try await run(args: ["--consolidate-clip"], helperErrorTitle: helperErrorTitle)
+    }
+
+    func resolveClipStartTime(
+        clipId: String,
+        clipName: String = "",
+        referenceTimecode: String,
+        helperErrorTitle: String = "Sampler capture error"
+    ) async throws -> PTResolvedClipStartTime {
+        let trimmedClipId = clipId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedClipName = clipName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedReference = referenceTimecode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let args: [String]
+        if trimmedClipName.isEmpty {
+            args = ["--resolve-clip-start-time-by-id", trimmedClipId, trimmedReference]
+        } else {
+            args = ["--resolve-clip-start-time-by-id-or-name", trimmedClipId, trimmedClipName, trimmedReference]
+        }
+        let result = try await run(args: args, helperErrorTitle: helperErrorTitle)
+        return try parseResolveClipStartTimeOutput(result.stdout)
     }
 
     func resolveHelperPath() throws -> String {
@@ -357,6 +377,8 @@ final class PTSLHelperClient: @unchecked Sendable {
                 (json["clip_start_time"] as? String) ?? (json["clipStartTime"] as? String) ?? ""
             ),
             srcStartSeconds: doubleValue(json["src_start_seconds"] ?? json["srcStartSeconds"]),
+            sourceStartSeconds: doubleValue(json["source_start_seconds"] ?? json["sourceStartSeconds"]),
+            sourceEndSeconds: doubleValue(json["source_end_seconds"] ?? json["sourceEndSeconds"]),
             clipId: stringValue(json["clip_id"] ?? json["clipId"]),
             sampleRateHz: doubleValue(json["sample_rate_hz"] ?? json["sampleRateHz"]),
             sessionFps: doubleValue(json["session_fps"] ?? json["sessionFps"])
@@ -423,6 +445,22 @@ final class PTSLHelperClient: @unchecked Sendable {
         if let number = value as? Int { return Double(number) }
         if let number = value as? NSNumber { return number.doubleValue }
         return nil
+    }
+
+    private func parseResolveClipStartTimeOutput(_ stdout: String) throws -> PTResolvedClipStartTime {
+        guard let data = stdout.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw PTSLHelperError.helperCommandFailed("Could not find the selected clip start time in Pro Tools.")
+        }
+
+        let resolvedClipStartTime = PTTimecodeMath.normalizeHelperTimecode(
+            (json["resolved_clip_start_time"] as? String) ?? (json["resolvedClipStartTime"] as? String) ?? ""
+        )
+        let sessionFps = doubleValue(json["session_fps"] ?? json["sessionFps"])
+        return PTResolvedClipStartTime(
+            resolvedClipStartTime: resolvedClipStartTime,
+            sessionFps: sessionFps
+        )
     }
 }
 

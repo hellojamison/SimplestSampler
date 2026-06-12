@@ -2,7 +2,29 @@ import Foundation
 
 struct StoredLibraryMetadata: Codable {
     var captures: [SamplerCapture]
+    var categories: [StoredCategory]
     var nextSequence: Int
+    var nextCategorySequence: Int
+
+    init(
+        captures: [SamplerCapture] = [],
+        categories: [StoredCategory] = [],
+        nextSequence: Int = 1,
+        nextCategorySequence: Int = 1
+    ) {
+        self.captures = captures
+        self.categories = categories
+        self.nextSequence = nextSequence
+        self.nextCategorySequence = nextCategorySequence
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        captures = try container.decode([SamplerCapture].self, forKey: .captures)
+        categories = try container.decodeIfPresent([StoredCategory].self, forKey: .categories) ?? []
+        nextSequence = try container.decode(Int.self, forKey: .nextSequence)
+        nextCategorySequence = try container.decodeIfPresent(Int.self, forKey: .nextCategorySequence) ?? 1
+    }
 }
 
 enum StoredLibraryService {
@@ -30,7 +52,7 @@ enum StoredLibraryService {
         guard FileManager.default.fileExists(atPath: libraryFileURL.path),
               let data = try? Data(contentsOf: libraryFileURL),
               let decoded = try? JSONDecoder().decode(StoredLibraryMetadata.self, from: data) else {
-            return StoredLibraryMetadata(captures: [], nextSequence: 1)
+            return StoredLibraryMetadata()
         }
         return decoded
     }
@@ -119,6 +141,64 @@ enum StoredLibraryService {
         }
 
         return removed
+    }
+
+    static func addCategory(name: String) throws -> StoredCategory {
+        var metadata = loadLibrary()
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw NSError(domain: "SimplestSampler", code: 5, userInfo: [NSLocalizedDescriptionKey: "Category name cannot be empty."])
+        }
+
+        let category = StoredCategory(
+            id: "sampler-category-\(metadata.nextCategorySequence)",
+            name: trimmed
+        )
+        metadata.nextCategorySequence += 1
+        metadata.categories.append(category)
+        try saveLibrary(metadata)
+        return category
+    }
+
+    static func renameCategory(id: String, name: String) throws -> StoredCategory? {
+        var metadata = loadLibrary()
+        guard let index = metadata.categories.firstIndex(where: { $0.id == id }) else { return nil }
+
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw NSError(domain: "SimplestSampler", code: 6, userInfo: [NSLocalizedDescriptionKey: "Category name cannot be empty."])
+        }
+
+        metadata.categories[index].name = trimmed
+        try saveLibrary(metadata)
+        return metadata.categories[index]
+    }
+
+    static func deleteCategory(id: String) throws -> Bool {
+        var metadata = loadLibrary()
+        guard let index = metadata.categories.firstIndex(where: { $0.id == id }) else { return false }
+
+        metadata.categories.remove(at: index)
+        for captureIndex in metadata.captures.indices where metadata.captures[captureIndex].categoryId == id {
+            metadata.captures[captureIndex].categoryId = nil
+        }
+        try saveLibrary(metadata)
+        return true
+    }
+
+    static func setCaptureCategory(captureId: String, categoryId: String?) throws -> SamplerCapture? {
+        var metadata = loadLibrary()
+        guard let index = metadata.captures.firstIndex(where: { $0.id == captureId }) else { return nil }
+
+        if let categoryId, !categoryId.isEmpty {
+            guard metadata.categories.contains(where: { $0.id == categoryId }) else { return nil }
+            metadata.captures[index].categoryId = categoryId
+        } else {
+            metadata.captures[index].categoryId = nil
+        }
+
+        try saveLibrary(metadata)
+        return metadata.captures[index]
     }
 
     static func renameStoredCapture(id: String, displayName: String, hasCustomDisplayName: Bool) throws -> SamplerCapture? {

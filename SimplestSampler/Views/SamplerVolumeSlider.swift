@@ -1,43 +1,29 @@
-import AppKit
 import SwiftUI
 
-struct SamplerVolumeSlider: NSViewRepresentable {
+struct SamplerVolumeSlider: View {
     @Binding var value: Int
     var maxValue: Int
+    var theme: SamplerThemeColors
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(value: $value)
-    }
-
-    func makeNSView(context: Context) -> NSSlider {
-        let slider = NSSlider(
-            value: Double(value),
-            minValue: 0,
-            maxValue: Double(maxValue),
-            target: context.coordinator,
-            action: #selector(Coordinator.valueChanged(_:))
+    var body: some View {
+        Slider(
+            value: Binding(
+                get: { Double(value) },
+                set: { value = Int($0.rounded()) }
+            ),
+            in: 0...Double(maxValue)
         )
-        slider.isContinuous = true
-        slider.numberOfTickMarks = 0
-        slider.controlSize = .small
-        return slider
-    }
-
-    func updateNSView(_ slider: NSSlider, context: Context) {
-        let next = Double(value)
-        guard abs(slider.doubleValue - next) > 0.5 else { return }
-        slider.doubleValue = next
-    }
-
-    final class Coordinator: NSObject {
-        private var value: Binding<Int>
-
-        init(value: Binding<Int>) {
-            self.value = value
-        }
-
-        @objc func valueChanged(_ sender: NSSlider) {
-            value.wrappedValue = Int(sender.doubleValue.rounded())
+        .tint(theme.sliderThumb)
+        .controlSize(.small)
+        .padding(.vertical, 2)
+        .background {
+            Capsule(style: .continuous)
+                .fill(theme.sliderTrack)
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(theme.border.opacity(0.9), lineWidth: 1)
+                )
+                .frame(height: 6)
         }
     }
 }

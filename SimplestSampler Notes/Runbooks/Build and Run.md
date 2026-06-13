@@ -14,6 +14,12 @@ First build runs **Build Native Helper** (CMake + gRPC; can take several minutes
 
 ```bash
 cd /Users/jamisonrabbe/Projects/SimplestSampler
+
+# Preferred wrapper for day-to-day Debug rebuilds
+scripts/build-app.sh
+scripts/build-app.sh --open
+
+# Equivalent manual steps
 node scripts/build-native-helper.js   # optional pre-build
 xcodebuild -project SimplestSampler.xcodeproj -scheme SimplestSampler -configuration Debug -derivedDataPath build build
 open build/Build/Products/Debug/SimplestSampler.app

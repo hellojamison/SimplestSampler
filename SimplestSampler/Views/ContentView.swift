@@ -1,9 +1,11 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @ObservedObject var viewModel: SamplerViewModel
     @Environment(\.samplerThemeColors) private var theme
+    @State private var isStoredTabDropTarget = false
 
     var body: some View {
         VStack(spacing: SamplerTheme.Layout.sectionSpacing) {
@@ -14,8 +16,8 @@ struct ContentView: View {
             footer
             statusBar
         }
-        .padding(SamplerTheme.Layout.windowPadding)
-        .background(theme.backgroundGradient)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .samplerWindowChrome()
         .background(WindowFrameTracker(viewModel: viewModel))
         .background {
             if #available(macOS 14.0, *) {
@@ -26,9 +28,7 @@ struct ContentView: View {
 
     private var outputBar: some View {
         HStack(spacing: SamplerTheme.Layout.rowColumnGap) {
-            Text("Output")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(theme.muted)
+            SamplerSectionLabel(title: "Output")
                 .frame(width: SamplerTheme.Layout.labelWidth, alignment: .leading)
 
             Picker("Sampler audio output", selection: Binding(
@@ -41,6 +41,7 @@ struct ContentView: View {
                 }
             }
             .labelsHidden()
+            .tint(theme.accent)
             .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, SamplerTheme.Layout.chipPaddingH)
@@ -52,11 +53,17 @@ struct ContentView: View {
     private var toolbar: some View {
         HStack(spacing: SamplerTheme.Layout.toolbarGap) {
             HStack(spacing: SamplerTheme.Layout.toolbarGap) {
-                Button(viewModel.audioPlayback.isPlaying ? "Stop" : "Play") {
+                Button {
                     viewModel.playToggleTapped()
+                } label: {
+                    Image(systemName: viewModel.audioPlayback.isPlaying ? "stop.fill" : "play.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: SamplerTheme.Layout.toolbarButtonHeight)
                 }
                 .buttonStyle(SamplerToolbarButtonStyle())
                 .disabled(!viewModel.audioPlayback.isPlaying && viewModel.selectedCapture() == nil)
+                .help(viewModel.audioPlayback.isPlaying ? "Stop playback" : "Play selected sample")
 
                 Button("Capture") {
                     viewModel.captureButtonTapped()
@@ -75,81 +82,124 @@ struct ContentView: View {
         HStack(spacing: SamplerTheme.Layout.tabBarPadding) {
             tabButton(title: "Active", tab: "recent")
             tabButton(title: "Stored", tab: "stored")
-            tabButton(title: "Simple-ish", tab: "simpleish")
+            tabButton(title: "Sound Board", tab: "soundboard")
         }
         .padding(SamplerTheme.Layout.tabBarPadding)
-        .background(theme.tabBarBackground)
-        .clipShape(Capsule(style: .continuous))
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Capsule(style: .continuous)
+                .fill(theme.tabBarBackground)
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(theme.tabBarBorder, lineWidth: 1)
+        )
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private func tabButton(title: String, tab: String) -> some View {
-        Button(title) {
-            viewModel.setActiveTab(tab)
-        }
-        .buttonStyle(SamplerTabButtonStyle(isActive: viewModel.activeTab == tab))
+        SamplerTabDropButton(
+            title: title,
+            tab: tab,
+            viewModel: viewModel,
+            isActive: viewModel.activeTab == tab,
+            onDropActiveSlot: handleTabDrop(slotIndex:tab:)
+        )
     }
 
+    @ViewBuilder
     private var captureList: some View {
-        ScrollView {
-            VStack(spacing: SamplerTheme.Layout.rowSpacing) {
-                if viewModel.activeTab == "stored" {
-                    if viewModel.storedCaptures.isEmpty {
-                        SlotRowView(viewModel: viewModel, index: 0, capture: nil, isStored: true)
-                    } else {
-                        ForEach(Array(viewModel.storedCaptures.enumerated()), id: \.element.id) { index, capture in
-                            SlotRowView(viewModel: viewModel, index: index, capture: capture, isStored: true)
-                        }
-                    }
-                } else if viewModel.activeTab == "simpleish" {
-                    SimpleishCategoryBar(viewModel: viewModel)
+        if viewModel.activeTab == "stored" {
+            storedCaptureList
+        } else if viewModel.activeTab == "soundboard" {
+            soundboardCaptureList
+        } else {
+            activeCaptureList
+        }
+    }
 
-                    if viewModel.storedCaptures.isEmpty {
-                        SlotRowView(viewModel: viewModel, index: 0, capture: nil, isStored: true)
-                    } else if viewModel.simpleishCaptures.isEmpty {
-                        SimpleishEmptyFilterRow()
-                    } else {
-                        ForEach(Array(viewModel.simpleishCaptures.enumerated()), id: \.element.id) { index, capture in
-                            SlotRowView(
-                                viewModel: viewModel,
-                                index: index,
-                                capture: capture,
-                                isStored: true,
-                                showsCategoryPicker: true
-                            )
-                        }
-                    }
+    private var storedCaptureList: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(spacing: SamplerTheme.Layout.rowSpacing) {
+                StoredCategoryBar(viewModel: viewModel)
+
+                if viewModel.storedCaptures.isEmpty {
+                    SlotRowView(viewModel: viewModel, index: 0, capture: nil, isStored: true)
+                } else if viewModel.filteredStoredCaptures.isEmpty {
+                    StoredEmptyFilterRow()
                 } else {
-                    ForEach(0..<viewModel.activeSlotCount, id: \.self) { index in
+                    ForEach(Array(viewModel.filteredStoredCaptures.enumerated()), id: \.element.id) { index, capture in
                         SlotRowView(
                             viewModel: viewModel,
                             index: index,
-                            capture: viewModel.recentCaptures[index],
-                            isStored: false
+                            capture: capture,
+                            isStored: true,
+                            showsCategoryPicker: true
                         )
                     }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(storedTabDropBackground)
+        .onDrop(of: [.simplestSamplerActiveSlotDrag, .simplestSamplerActiveSlotIndex, .plainText], isTargeted: $isStoredTabDropTarget) { providers in
+            handleStoredTabDrop(providers)
+        }
+    }
 
-                    if viewModel.showsSlotCountControls {
-                        HStack(spacing: 8) {
-                            if viewModel.canRemoveActiveSlot {
-                                Button(action: { viewModel.removeActiveSlot() }) {
-                                    slotCountControlLabel(systemImage: "minus", title: "Remove Slot")
-                                }
-                                .buttonStyle(AddSlotButtonStyle())
-                            }
+    private var soundboardCaptureList: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            SoundBoardView(viewModel: viewModel)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
 
-                            if viewModel.canAddActiveSlot {
-                                Button(action: { viewModel.addActiveSlot() }) {
-                                    slotCountControlLabel(systemImage: "plus", title: "Add Slot")
-                                }
-                                .buttonStyle(AddSlotButtonStyle())
+    private var activeCaptureList: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(spacing: SamplerTheme.Layout.rowSpacing) {
+                ForEach(0..<viewModel.activeSlotCount, id: \.self) { index in
+                    SlotRowView(
+                        viewModel: viewModel,
+                        index: index,
+                        capture: viewModel.recentCaptures[index],
+                        isStored: false
+                    )
+                }
+
+                if viewModel.showsSlotCountControls {
+                    HStack(spacing: 8) {
+                        if viewModel.canRemoveActiveSlot {
+                            Button(action: { viewModel.removeActiveSlot() }) {
+                                slotCountControlLabel(systemImage: "minus", title: "Remove Slot")
                             }
+                            .buttonStyle(AddSlotButtonStyle())
+                        }
+
+                        if viewModel.canAddActiveSlot {
+                            Button(action: { viewModel.addActiveSlot() }) {
+                                slotCountControlLabel(systemImage: "plus", title: "Add Slot")
+                            }
+                            .buttonStyle(AddSlotButtonStyle())
                         }
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder
+    private var storedTabDropBackground: some View {
+        if isStoredTabDropTarget {
+            RoundedRectangle(cornerRadius: SamplerTheme.Layout.rowCornerRadius, style: .continuous)
+                .stroke(theme.accent.opacity(0.48), style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                .background(
+                    RoundedRectangle(cornerRadius: SamplerTheme.Layout.rowCornerRadius, style: .continuous)
+                        .fill(theme.accentSoft.opacity(0.08))
+                )
+        }
     }
 
     private var footer: some View {
@@ -176,6 +226,76 @@ struct ContentView: View {
         .foregroundStyle(theme.muted)
     }
 
+    private func handleStoredTabDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first(where: \.supportsActiveSlotDragPayload) else {
+            return false
+        }
+        provider.loadActiveSlotDragPayload { payload in
+            guard let payload else { return }
+            Task { @MainActor in
+                viewModel.storeActiveCapture(from: payload.slotIndex)
+            }
+        }
+        return true
+    }
+
+    private func handleTabDrop(slotIndex: Int, tab: String) {
+        switch tab {
+        case "stored":
+            viewModel.setActiveTab("stored")
+            viewModel.storeActiveCapture(from: slotIndex)
+        case "soundboard":
+            viewModel.setActiveTab("soundboard")
+            viewModel.assignActiveCaptureToSoundboard(from: slotIndex)
+        default:
+            viewModel.setActiveTab("recent")
+        }
+    }
+
+}
+
+private struct SamplerTabDropButton: View {
+    let title: String
+    let tab: String
+    @ObservedObject var viewModel: SamplerViewModel
+    let isActive: Bool
+    let onDropActiveSlot: (Int, String) -> Void
+
+    @State private var isDropTargeted = false
+
+    var body: some View {
+        Button(title) {
+            viewModel.setActiveTab(tab)
+        }
+        .buttonStyle(SamplerTabButtonStyle(isActive: isActive, isDropTarget: isDropTargeted))
+        .onDrop(
+            of: [.simplestSamplerActiveSlotDrag, .simplestSamplerActiveSlotIndex, .plainText],
+            isTargeted: Binding(
+                get: { isDropTargeted },
+                set: { targeted in
+                    isDropTargeted = targeted
+                    if targeted, viewModel.activeTab != tab {
+                        viewModel.setActiveTab(tab)
+                    }
+                }
+            )
+        ) { providers in
+            handleDrop(providers)
+        }
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first(where: \.supportsActiveSlotDragPayload) else {
+            return false
+        }
+        provider.loadActiveSlotDragPayload { payload in
+            guard let payload else { return }
+            Task { @MainActor in
+                onDropActiveSlot(payload.slotIndex, tab)
+            }
+        }
+        return true
+    }
 }
 
 @available(macOS 14.0, *)
@@ -306,49 +426,78 @@ private extension SamplerViewModel {
         if selectedCaptureSource == "stored" {
             return storedCaptures.first { $0.id == selectedCaptureId }
         }
+        if selectedCaptureSource == "soundboard" {
+            return soundboardPads.compactMap { $0 }.first { $0.id == selectedCaptureId }
+        }
         return recentCaptures.compactMap { $0 }.first { $0.id == selectedCaptureId }
     }
 }
 
 struct SamplerIconButtonStyle: ButtonStyle {
     @Environment(\.samplerThemeColors) private var theme
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(theme.text)
+            .foregroundStyle(theme.strongText)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(configuration.isPressed ? theme.buttonFillPressed : theme.buttonFill)
+                SamplerControlSurface(
+                    theme: theme,
+                    cornerRadius: SamplerTheme.Layout.chipCornerRadius,
+                    borderColor: theme.controlBorder
+                ) {
+                    RoundedRectangle(cornerRadius: SamplerTheme.Layout.chipCornerRadius, style: .continuous)
+                        .fill(SamplerControlFill.control(isPressed: configuration.isPressed).gradient(theme: theme))
+                }
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(theme.border, lineWidth: 1)
-            )
+            .shadow(color: theme.panelShadow.opacity(0.35), radius: 4, y: 1)
+            .samplerDisabledOpacity(!isEnabled, theme: theme)
     }
 }
 
 struct SamplerToolbarButtonStyle: ButtonStyle {
     @Environment(\.samplerThemeColors) private var theme
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .semibold))
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: SamplerTheme.Layout.toolbarButtonHeight)
-            .foregroundStyle(theme.text)
+            .foregroundStyle(theme.selectedRowText)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(configuration.isPressed ? theme.buttonFillPressed : theme.buttonFill)
+                SamplerControlSurface(
+                    theme: theme,
+                    cornerRadius: SamplerTheme.Layout.chipCornerRadius,
+                    borderColor: toolbarBorder
+                ) {
+                    RoundedRectangle(cornerRadius: SamplerTheme.Layout.chipCornerRadius, style: .continuous)
+                        .fill(toolbarFill(isPressed: configuration.isPressed))
+                }
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(theme.border, lineWidth: 1)
+            .shadow(color: theme.accentStrong.opacity(0.22), radius: 5, y: 2)
+            .samplerDisabledOpacity(!isEnabled, theme: theme)
+    }
+
+    private var toolbarBorder: Color {
+        theme.accentStrong.opacity(0.34)
+    }
+
+    private func toolbarFill(isPressed: Bool) -> LinearGradient {
+        if isPressed {
+            return LinearGradient(
+                colors: [
+                    theme.accentTop.opacity(0.86),
+                    theme.accentStrong.opacity(0.86)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
             )
+        }
+        return theme.accentGradient
     }
 }
 
 struct SamplerCaptureButtonStyle: ButtonStyle {
     @Environment(\.samplerThemeColors) private var theme
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -357,22 +506,17 @@ struct SamplerCaptureButtonStyle: ButtonStyle {
             .frame(minHeight: SamplerTheme.Layout.toolbarButtonHeight)
             .foregroundStyle(theme.captureText)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                theme.captureTop.opacity(configuration.isPressed ? 0.8 : 1),
-                                theme.captureBottom.opacity(configuration.isPressed ? 0.8 : 1)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
+                SamplerControlSurface(
+                    theme: theme,
+                    cornerRadius: SamplerTheme.Layout.chipCornerRadius,
+                    borderColor: theme.captureBorder
+                ) {
+                    RoundedRectangle(cornerRadius: SamplerTheme.Layout.chipCornerRadius, style: .continuous)
+                        .fill(SamplerControlFill.capture(isPressed: configuration.isPressed).gradient(theme: theme))
+                }
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(theme.captureBottom.opacity(0.35), lineWidth: 1)
-            )
+            .shadow(color: theme.captureBottom.opacity(0.18), radius: 5, y: 2)
+            .samplerDisabledOpacity(!isEnabled, theme: theme)
     }
 }
 
@@ -382,30 +526,59 @@ struct AddSlotButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
-                RoundedRectangle(cornerRadius: SamplerTheme.Layout.rowCornerRadius, style: .continuous)
-                    .fill(configuration.isPressed ? theme.buttonFillPressed : theme.chipBackground)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: SamplerTheme.Layout.rowCornerRadius, style: .continuous)
-                    .stroke(theme.border, lineWidth: 1)
+                SamplerControlSurface(
+                    theme: theme,
+                    cornerRadius: SamplerTheme.Layout.rowCornerRadius,
+                    borderColor: theme.border
+                ) {
+                    RoundedRectangle(cornerRadius: SamplerTheme.Layout.rowCornerRadius, style: .continuous)
+                        .fill(
+                            configuration.isPressed
+                                ? theme.controlActiveGradient
+                                : LinearGradient(
+                                    colors: [theme.chipBackground, theme.chipBackground.opacity(0.92)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                        )
+                }
             )
     }
 }
 
 struct SamplerTabButtonStyle: ButtonStyle {
     var isActive: Bool
+    var isDropTarget: Bool = false
     @Environment(\.samplerThemeColors) private var theme
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: 12, weight: .bold))
+            .kerning(0.3)
             .padding(.horizontal, SamplerTheme.Layout.tabPaddingH)
             .frame(minHeight: SamplerTheme.Layout.tabMinHeight)
-            .foregroundStyle(isActive ? theme.slotSelectedText : theme.muted)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(isActive ? theme.accent : Color.clear)
-            )
+            .contentShape(Rectangle())
+            .foregroundStyle((isActive || isDropTarget) ? theme.selectedRowText : theme.muted)
+            .background {
+                if isActive {
+                    Capsule(style: .continuous)
+                        .fill(theme.accentGradient)
+                        .overlay(alignment: .top) {
+                            Capsule(style: .continuous)
+                                .stroke(theme.topHighlight, lineWidth: 1)
+                                .padding(1)
+                        }
+                        .shadow(color: theme.accent.opacity(0.18), radius: 4, y: 2)
+                } else if isDropTarget {
+                    Capsule(style: .continuous)
+                        .fill(theme.accentSoft.opacity(0.92))
+                        .overlay(
+                            Capsule(style: .continuous)
+                                .stroke(theme.accent.opacity(0.45), lineWidth: 1.5)
+                        )
+                }
+            }
+            .opacity(configuration.isPressed && !isActive ? 0.85 : 1)
     }
 }
 
@@ -475,13 +648,29 @@ struct WindowFrameTracker: NSViewRepresentable {
             if let frame = preferencesStore.preferredWindowFrame(),
                frame.width >= SamplerConstants.minWindowWidth,
                frame.height >= SamplerConstants.minWindowHeight {
-                window.setFrame(frame, display: true)
+                window.setFrame(
+                    clampedInitialFrame(frame, minimumHeight: preferredHeight()),
+                    display: true
+                )
             } else {
                 window.setContentSize(NSSize(
                     width: SamplerConstants.defaultWindowWidth,
                     height: preferredHeight()
                 ))
             }
+        }
+
+        @MainActor
+        private func clampedInitialFrame(_ frame: NSRect, minimumHeight: CGFloat) -> NSRect {
+            let requiredHeight = max(SamplerConstants.minWindowHeight, minimumHeight)
+            let currentContentHeight = observedWindow?.contentRect(forFrameRect: frame).height ?? frame.height
+            guard currentContentHeight < requiredHeight else { return frame }
+
+            var adjusted = frame
+            let heightDelta = requiredHeight - currentContentHeight
+            adjusted.origin.y -= heightDelta
+            adjusted.size.height += heightDelta
+            return adjusted
         }
 
         private func registerObservers(for window: NSWindow) {

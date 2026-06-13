@@ -7,9 +7,7 @@ struct VolumeControlView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: SamplerTheme.Layout.volumeMeterSpacing) {
             HStack(spacing: SamplerTheme.Layout.rowColumnGap) {
-                Text("Volume")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(theme.muted)
+                SamplerSectionLabel(title: "Volume")
                     .frame(width: SamplerTheme.Layout.labelWidth, alignment: .leading)
 
                 HStack(spacing: SamplerTheme.Layout.volumeSliderGap) {
@@ -19,7 +17,8 @@ struct VolumeControlView: View {
                                 get: { viewModel.volume },
                                 set: { viewModel.setVolume($0) }
                             ),
-                            maxValue: SamplerConstants.maxVolume
+                            maxValue: SamplerConstants.maxVolume,
+                            theme: theme
                         )
 
                         if viewModel.audioPlayback.isPlaying {
@@ -29,8 +28,8 @@ struct VolumeControlView: View {
                     .frame(maxWidth: .infinity)
 
                     Text(SamplerVolumeMath.formattedDecibels(forVolume: viewModel.volume))
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(theme.text)
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(theme.strongText)
                         .frame(width: SamplerTheme.Layout.volumeValueWidth, alignment: .trailing)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)

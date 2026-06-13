@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -29,15 +30,30 @@ struct SlotRowView: View {
     }
 
     private var primaryText: Color {
-        isSelected ? theme.slotSelectedText : theme.text
+        isSelected ? theme.selectedRowText : theme.text
     }
 
     private var secondaryText: Color {
-        isSelected ? theme.slotSelectedText.opacity(0.72) : theme.muted
+        isSelected ? theme.selectedMutedText : theme.muted
     }
 
     private var renameFieldForeground: Color {
         nameFocused ? theme.renameFieldText : primaryText
+    }
+
+    private var namePlaceholder: String {
+        isStored ? "Stored Sample" : "Empty Slot"
+    }
+
+    private var nameLayoutText: String {
+        let trimmedDraft = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedDraft.isEmpty {
+            return trimmedDraft
+        }
+        if let capture {
+            return capture.slotLabel
+        }
+        return namePlaceholder
     }
 
     @ViewBuilder
@@ -46,7 +62,7 @@ struct SlotRowView: View {
             RoundedRectangle(cornerRadius: SamplerTheme.Layout.renameFieldCornerRadius, style: .continuous)
                 .fill(theme.renameFieldFill)
                 .shadow(color: theme.renameFieldBorder.opacity(0.28), radius: 4, y: 1)
-                .shadow(color: Color.black.opacity(0.14), radius: 2, y: 1)
+                .shadow(color: theme.shadow.opacity(0.32), radius: 2, y: 1)
         }
     }
 
@@ -65,21 +81,16 @@ struct SlotRowView: View {
         )
     }
 
+    private var isActiveRowDragEnabled: Bool {
+        !isStored && capture != nil
+    }
+
     var body: some View {
         HStack(spacing: SamplerTheme.Layout.rowColumnGap) {
-            if !isStored {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(secondaryText.opacity(0.85))
-                    .frame(width: 10)
-                    .contentShape(Rectangle())
-                    .onDrag { activeSlotDragProvider() }
-                    .help("Drag to reorder")
-            }
-
             Button(action: playAction) {
                 Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                    .font(.system(size: 9, weight: .bold))
+                    .symbolRenderingMode(.monochrome)
+                    .font(.system(size: 10, weight: .black))
                     .frame(width: SamplerTheme.Layout.playButtonSize, height: SamplerTheme.Layout.playButtonSize)
             }
             .buttonStyle(SlotPlayButtonStyle(isSelected: isSelected))
@@ -87,43 +98,52 @@ struct SlotRowView: View {
 
             VStack(alignment: .leading, spacing: SamplerTheme.Layout.metaLineSpacing) {
                 HStack(spacing: SamplerTheme.Layout.metaNameDurationGap) {
-                    TextField(
-                        isStored ? "Stored Sample" : "Empty Slot",
-                        text: nameBinding
-                    )
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(renameFieldForeground)
-                    .lineLimit(1)
-                    .padding(.horizontal, nameFocused ? SamplerTheme.Layout.renameFieldPaddingH : 0)
-                    .padding(.vertical, nameFocused ? SamplerTheme.Layout.renameFieldPaddingV : 0)
-                    .background(renameFieldBackground)
-                    .overlay(renameFieldBorder)
-                    .animation(.easeOut(duration: 0.12), value: nameFocused)
-                    .modifier(RenameFocusEffectModifier(disabled: nameFocused))
-                    .disabled(capture == nil)
-                    .focused($nameFocused)
-                    .id(displayNameFieldIdentity)
-                    .onSubmit {
-                        commitRename()
-                        nameFocused = false
-                    }
-                    .onChange(of: nameFocused) { focused in
-                        if focused {
-                            draftName = capture?.slotLabel ?? ""
-                            selectRenameFieldText()
-                        } else {
-                            commitRename()
+                    Text(nameLayoutText)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .foregroundStyle(.clear)
+                        .overlay(alignment: .leading) {
+                            TextField(namePlaceholder, text: nameBinding)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(renameFieldForeground)
+                                .lineLimit(1)
+                                .background {
+                                    renameFieldBackground
+                                        .padding(.horizontal, -SamplerTheme.Layout.renameFieldPaddingH)
+                                        .padding(.vertical, -SamplerTheme.Layout.renameFieldPaddingV)
+                                }
+                                .overlay {
+                                    renameFieldBorder
+                                        .padding(.horizontal, -SamplerTheme.Layout.renameFieldPaddingH)
+                                        .padding(.vertical, -SamplerTheme.Layout.renameFieldPaddingV)
+                                }
+                                .animation(.easeOut(duration: 0.12), value: nameFocused)
+                                .modifier(RenameFocusEffectModifier(disabled: nameFocused))
+                                .disabled(capture == nil)
+                                .focused($nameFocused)
+                                .id(displayNameFieldIdentity)
+                                .onSubmit {
+                                    commitRename()
+                                    nameFocused = false
+                                }
+                                .onChange(of: nameFocused) { focused in
+                                    if focused {
+                                        draftName = capture?.slotLabel ?? ""
+                                        selectRenameFieldText()
+                                    } else {
+                                        commitRename()
+                                    }
+                                }
+                                .onChange(of: capture?.id) { _ in syncDraftNameFromCapture() }
+                                .onChange(of: capture?.displayName) { _ in syncDraftNameFromCapture() }
+                                .onChange(of: capture?.hasCustomDisplayName) { _ in syncDraftNameFromCapture() }
+                                .onChange(of: capture?.fileName) { _ in syncDraftNameFromCapture() }
+                                .onAppear { syncDraftNameFromCapture() }
+                                .modifier(StoredDoubleClickRenameModifier(enabled: isStored && capture != nil) {
+                                    beginRename()
+                                })
                         }
-                    }
-                    .onChange(of: capture?.id) { _ in syncDraftNameFromCapture() }
-                    .onChange(of: capture?.displayName) { _ in syncDraftNameFromCapture() }
-                    .onChange(of: capture?.hasCustomDisplayName) { _ in syncDraftNameFromCapture() }
-                    .onChange(of: capture?.fileName) { _ in syncDraftNameFromCapture() }
-                    .onAppear { syncDraftNameFromCapture() }
-                    .modifier(StoredDoubleClickRenameModifier(enabled: isStored && capture != nil) {
-                        beginRename()
-                    })
 
                     if let duration = capture?.formattedDuration {
                         Text(duration)
@@ -217,6 +237,7 @@ struct SlotRowView: View {
             RoundedRectangle(cornerRadius: SamplerTheme.Layout.rowCornerRadius, style: .continuous)
                 .stroke(borderColor, lineWidth: isSelected ? 1.5 : 1)
         )
+        .shadow(color: isSelected ? theme.accent.opacity(0.08) : .clear, radius: 6, y: 2)
         .contentShape(Rectangle())
         .onTapGesture {
             if nameFocused {
@@ -232,26 +253,12 @@ struct SlotRowView: View {
         .onChange(of: viewModel.selectedCaptureSource) { _ in
             resignRenameIfSelectionMoved()
         }
-        .onDrop(of: [.fileURL], isTargeted: dropTargetBinding) { providers in
+        .onDrop(of: [.fileURL, .simplestSamplerActiveSlotDrag, .simplestSamplerActiveSlotIndex, .plainText], isTargeted: dropTargetBinding) { providers in
             guard !isStored else { return false }
-            return handleDrop(providers)
+            return handleRowDrop(providers)
         }
-        .onDrop(of: [.simplestSamplerActiveSlotIndex], isTargeted: nil) { providers in
-            guard !isStored else { return false }
-            return handleReorderDrop(providers)
-        }
-        .onDrag {
-            guard let capture, showsCategoryPicker else { return NSItemProvider() }
-            let provider = NSItemProvider(object: capture.id as NSString)
-            provider.registerDataRepresentation(
-                forTypeIdentifier: UTType.simplestSamplerStoredCapture.identifier,
-                visibility: .all
-            ) { completion in
-                completion(capture.id.data(using: .utf8), nil)
-                return nil
-            }
-            return provider
-        }
+        .modifier(ActiveCaptureRowDragModifier(enabled: isActiveRowDragEnabled, dragProvider: activeSlotDragProvider))
+        .modifier(StoredCaptureRowDragModifier(capture: capture, enabled: showsCategoryPicker))
     }
 
     private var rowBackground: some View {
@@ -267,18 +274,22 @@ struct SlotRowView: View {
     }
 
     private var rowBaseBackground: Color {
-        isSelected ? theme.slotSelected : theme.slotBackground
+        if isSelected { return theme.selectedRow }
+        if isPlaying { return theme.slotPlaying }
+        return theme.slotBackground
     }
 
     private var rowPlaybackProgressFill: Color {
         if isSelected {
-            return Color.white.opacity(0.16)
+            return theme.rowPlaybackOverlay
         }
         return theme.accentSoft.opacity(0.62)
     }
 
     private var borderColor: Color {
-        isSelected ? theme.accent : theme.border
+        if isSelected { return theme.selectedRowBorder }
+        if isPlaying { return theme.borderStrong }
+        return theme.border
     }
 
     private var dropTargetBinding: Binding<Bool> {
@@ -409,45 +420,45 @@ struct SlotRowView: View {
         return true
     }
 
+    private func handleRowDrop(_ providers: [NSItemProvider]) -> Bool {
+        if providers.contains(where: { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }) {
+            return handleDrop(providers)
+        }
+        return handleReorderDrop(providers)
+    }
+
     private func activeSlotDragProvider() -> NSItemProvider {
         let provider = NSItemProvider(object: "\(index)" as NSString)
+        let payload = viewModel.activeSlotDragPayload(for: index)
+        provider.registerDataRepresentation(
+            forTypeIdentifier: UTType.simplestSamplerActiveSlotDrag.identifier,
+            visibility: .all
+        ) { completion in
+            completion(payload?.encodedData, nil)
+            return nil
+        }
         provider.registerDataRepresentation(
             forTypeIdentifier: UTType.simplestSamplerActiveSlotIndex.identifier,
             visibility: .all
         ) { completion in
-            completion("\(self.index)".data(using: .utf8), nil)
+            completion(payload?.encodedData ?? "\(self.index)".data(using: .utf8), nil)
             return nil
         }
         return provider
     }
 
     private func handleReorderDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first(where: {
-            $0.hasItemConformingToTypeIdentifier(UTType.simplestSamplerActiveSlotIndex.identifier)
-        }) else {
+        guard let provider = providers.first(where: \.supportsActiveSlotDragPayload) else {
             return false
         }
-
-        provider.loadItem(forTypeIdentifier: UTType.simplestSamplerActiveSlotIndex.identifier, options: nil) { item, _ in
-            guard let sourceIndex = slotIndex(from: item) else { return }
+        provider.loadActiveSlotDragPayload { payload in
+            guard let payload, payload.slotIndex != index else { return }
             Task { @MainActor in
-                viewModel.moveActiveSlot(from: sourceIndex, to: index)
+                viewModel.dropTargetIndex = -1
+                viewModel.moveActiveSlot(from: payload.slotIndex, to: index)
             }
         }
         return true
-    }
-
-    private func slotIndex(from item: NSSecureCoding?) -> Int? {
-        let raw: String?
-        if let string = item as? String {
-            raw = string
-        } else if let data = item as? Data {
-            raw = String(data: data, encoding: .utf8)
-        } else {
-            raw = nil
-        }
-        guard let raw, let value = Int(raw) else { return nil }
-        return value
     }
 }
 
@@ -457,6 +468,63 @@ private struct RenameFocusEffectModifier: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 14.0, *) {
             content.focusEffectDisabled(disabled)
+        } else {
+            content
+        }
+    }
+}
+
+private struct HoverCursorModifier: ViewModifier {
+    let cursor: NSCursor
+
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content.onHover { hovering in
+            guard hovering != isHovering else { return }
+            isHovering = hovering
+            if hovering {
+                cursor.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+}
+
+private struct ActiveCaptureRowDragModifier: ViewModifier {
+    let enabled: Bool
+    let dragProvider: () -> NSItemProvider
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .onDrag { dragProvider() }
+                .modifier(HoverCursorModifier(cursor: .openHand))
+                .help("Drag sample to reorder or move it to another tab")
+        } else {
+            content
+        }
+    }
+}
+
+private struct StoredCaptureRowDragModifier: ViewModifier {
+    let capture: SamplerCapture?
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled, let capture {
+            content.onDrag {
+                let provider = NSItemProvider(object: capture.id as NSString)
+                provider.registerDataRepresentation(
+                    forTypeIdentifier: UTType.simplestSamplerStoredCapture.identifier,
+                    visibility: .all
+                ) { completion in
+                    completion(capture.id.data(using: .utf8), nil)
+                    return nil
+                }
+                return provider
+            }
         } else {
             content
         }
@@ -481,22 +549,53 @@ private struct StoredDoubleClickRenameModifier: ViewModifier {
 struct SlotPlayButtonStyle: ButtonStyle {
     var isSelected = false
     @Environment(\.samplerThemeColors) private var theme
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(isSelected ? theme.slotSelectedText : theme.text)
-            .background(
+            .foregroundStyle(playForeground)
+            .background {
                 Circle()
-                    .fill(
-                        isSelected
-                            ? Color.white.opacity(configuration.isPressed ? 0.12 : 0.14)
-                            : (configuration.isPressed ? theme.playButtonFillPressed : theme.playButtonFill)
-                    )
-            )
+                    .fill(playFill(isPressed: configuration.isPressed))
+            }
             .overlay(
                 Circle()
-                    .stroke(isSelected ? Color.white.opacity(0.18) : theme.border, lineWidth: 1)
+                    .stroke(playBorder, lineWidth: 1)
             )
+            .shadow(color: playShadow, radius: 2, y: 1)
+            .samplerDisabledOpacity(!isEnabled, theme: theme)
+    }
+
+    private var playForeground: Color {
+        theme.selectedRowText
+    }
+
+    private var playBorder: Color {
+        if isSelected {
+            return theme.selectedChromeBorder
+        }
+        return theme.accentStrong.opacity(0.34)
+    }
+
+    private var playShadow: Color {
+        isSelected ? .clear : theme.accentStrong.opacity(0.18)
+    }
+
+    private func playFill(isPressed: Bool) -> AnyShapeStyle {
+        if isSelected {
+            return AnyShapeStyle(theme.selectedChromeFill.opacity(isPressed ? 0.86 : 1))
+        }
+        let gradient = isPressed
+            ? LinearGradient(
+                colors: [
+                    theme.accentTop.opacity(0.86),
+                    theme.accentStrong.opacity(0.86)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            : theme.accentGradient
+        return AnyShapeStyle(gradient)
     }
 }
 
@@ -505,10 +604,12 @@ struct SlotActionButtonStyle: ButtonStyle {
     var isAccent = false
     var isSelected = false
     @Environment(\.samplerThemeColors) private var theme
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: 10, weight: .bold))
+            .kerning(0.2)
             .padding(.horizontal, SamplerTheme.Layout.actionPaddingH)
             .frame(minHeight: SamplerTheme.Layout.actionMinHeight)
             .foregroundStyle(actionForeground)
@@ -518,27 +619,49 @@ struct SlotActionButtonStyle: ButtonStyle {
             )
             .overlay(
                 Capsule(style: .continuous)
-                    .stroke(isSelected ? Color.white.opacity(0.18) : theme.border, lineWidth: 1)
+                    .stroke(actionBorder, lineWidth: 1)
             )
+            .samplerDisabledOpacity(!isEnabled, theme: theme)
     }
 
     private var actionForeground: Color {
         if isDestructive {
-            return isSelected ? theme.slotSelectedText : theme.captureText
-        }
-        return isSelected ? theme.slotSelectedText : theme.muted
-    }
-
-    private func actionBackground(configuration: Configuration) -> Color {
-        if isSelected {
-            return Color.white.opacity(configuration.isPressed ? 0.12 : 0.14)
+            return isSelected ? theme.selectedRowText : theme.captureText
         }
         if isAccent {
-            return theme.accentSoft
+            return theme.strongText
         }
-        return configuration.isPressed
-            ? theme.buttonFillPressed
-            : theme.actionButtonFill
+        return isSelected ? theme.selectedRowText : theme.muted
+    }
+
+    private var actionBorder: Color {
+        if isSelected { return theme.selectedChromeBorder }
+        if isDestructive { return theme.captureBorder.opacity(0.75) }
+        return theme.controlBorder
+    }
+
+    private func actionBackground(configuration: Configuration) -> some ShapeStyle {
+        if isSelected {
+            return AnyShapeStyle(theme.selectedChromeFill.opacity(configuration.isPressed ? 0.86 : 1))
+        }
+        if isAccent {
+            return AnyShapeStyle(theme.accentSoft.opacity(configuration.isPressed ? 0.88 : 1))
+        }
+        if isDestructive {
+            return AnyShapeStyle(
+                LinearGradient(
+                    colors: [
+                        theme.captureTop.opacity(configuration.isPressed ? 0.78 : 0.92),
+                        theme.captureBottom.opacity(configuration.isPressed ? 0.78 : 0.92)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+        }
+        return AnyShapeStyle(
+            SamplerControlFill.control(isPressed: configuration.isPressed).gradient(theme: theme)
+        )
     }
 }
 
@@ -552,18 +675,33 @@ struct SlotShortcutButtonStyle: ButtonStyle {
             .padding(.horizontal, isTrigger ? SamplerTheme.Layout.shortcutTriggerPaddingH : SamplerTheme.Layout.shortcutPaddingH)
             .frame(minWidth: isTrigger ? SamplerTheme.Layout.shortcutTriggerMinWidth : nil)
             .frame(minHeight: SamplerTheme.Layout.actionMinHeight)
-            .foregroundStyle(isCapturing ? theme.captureText : theme.text)
+            .foregroundStyle(isCapturing ? theme.accent : theme.strongText)
             .background(
                 Capsule(style: .continuous)
-                    .fill(
-                        isCapturing
-                            ? theme.shortcutCapturingFill
-                            : (isTrigger ? theme.shortcutTriggerFill : theme.shortcutButtonFill)
-                    )
+                    .fill(shortcutBackground(configuration: configuration))
             )
             .overlay(
                 Capsule(style: .continuous)
-                    .stroke(theme.border, lineWidth: 1)
+                    .stroke(isCapturing ? theme.accent.opacity(0.58) : theme.controlBorder, lineWidth: 1)
             )
+            .shadow(color: isCapturing ? theme.focusRing : .clear, radius: 0, y: 0)
+            .overlay {
+                if isCapturing {
+                    Capsule(style: .continuous)
+                        .stroke(theme.focusRing, lineWidth: 3)
+                }
+            }
+    }
+
+    private func shortcutBackground(configuration: Configuration) -> some ShapeStyle {
+        if isCapturing {
+            return AnyShapeStyle(theme.shortcutCapturingFill)
+        }
+        if isTrigger {
+            return AnyShapeStyle(theme.shortcutTriggerFill)
+        }
+        return AnyShapeStyle(
+            SamplerControlFill.control(isPressed: configuration.isPressed).gradient(theme: theme)
+        )
     }
 }

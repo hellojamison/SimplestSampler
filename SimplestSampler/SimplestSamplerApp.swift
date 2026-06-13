@@ -46,6 +46,7 @@ struct SimplestSamplerApp: App {
                 ShortcutPreferencesView(viewModel: viewModel)
             }
         }
+        .windowResizability(.contentSize)
     }
 }
 

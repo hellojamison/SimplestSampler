@@ -14,6 +14,8 @@ class SimplestSampler_AS_GUI : public AAX_CEffectGUI_Cocoa {
 public:
     static AAX_CEffectGUI* AAX_CALLBACK Create();
 
+    ~SimplestSampler_AS_GUI() override;
+
     AAX_Result GetViewSize(AAX_Point* oEffectViewSize) const override;
     AAX_Result GetCustomLabel(AAX_EPlugInStrings iSelector, AAX_IString* oString) const override;
     AAX_Result ParameterUpdated(AAX_CParamID iParameterID) override;
@@ -28,7 +30,12 @@ public:
 protected:
     void CreateViewContents() override;
     void CreateViewContainer() override;
+    void DeleteViewContainer() override;
 
 private:
-    SimplestSamplerPanelView* mPanelView = nullptr;
+    SimplestSamplerPanelView* PanelView() const;
+    void DetachPanelView();
+    void SchedulePanelRefresh();
+
+    bool mPanelRefreshEnabled = false;
 };

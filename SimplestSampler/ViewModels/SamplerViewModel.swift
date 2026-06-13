@@ -7,9 +7,10 @@ import UniformTypeIdentifiers
 @MainActor
 final class SamplerViewModel: ObservableObject {
     @Published var recentCaptures: [SamplerCapture?]
+    @Published var soundboardPads: [SamplerCapture?]
     @Published var storedCaptures: [SamplerCapture]
     @Published var storedCategories: [StoredCategory] = []
-    @Published var simpleishCategoryFilter = SimpleishCategoryFilter.all
+    @Published var storedCategoryFilter = StoredCategoryFilter.all
     @Published var selectedCaptureId = ""
     @Published var selectedCaptureSource = "recent"
     @Published var loadedCaptureId = ""
@@ -19,6 +20,7 @@ final class SamplerViewModel: ObservableObject {
     @Published var outputDevices: [AudioOutputDevice] = []
     @Published var capturingShortcutId = ""
     @Published var dropTargetIndex = -1
+    @Published var selectedSoundboardPadIndex = -1
     @Published var isCaptureInProgress = false
     @Published private(set) var activeSlotCount: Int
     @Published private(set) var volume: Int
@@ -37,8 +39,8 @@ final class SamplerViewModel: ObservableObject {
         activeTab == "recent" && (canAddActiveSlot || canRemoveActiveSlot)
     }
 
-    var simpleishCaptures: [SamplerCapture] {
-        storedCaptures.filter { SimpleishCategoryFilter.matches(capture: $0, filter: simpleishCategoryFilter) }
+    var filteredStoredCaptures: [SamplerCapture] {
+        storedCaptures.filter { StoredCategoryFilter.matches(capture: $0, filter: storedCategoryFilter) }
     }
 
     let preferencesStore: PreferencesStore
@@ -46,6 +48,7 @@ final class SamplerViewModel: ObservableObject {
     private let shortcutManager = GlobalShortcutManager()
 
     private var nextRecentSequence = 1
+    private var nextSoundboardSequence = 1
     private var loadedCapture: SamplerCapture?
     private var captureTask: Task<Void, Never>?
     private var pluginBridgeWatcher: PluginBridgeWatcher?
@@ -53,6 +56,10 @@ final class SamplerViewModel: ObservableObject {
 
     var outputDeviceUID: String {
         preferencesStore.preferences.samplerAudioOutputDeviceUID
+    }
+
+    var appTheme: SamplerAppTheme {
+        preferencesStore.preferences.appTheme
     }
 
     var themeMode: SamplerThemeMode {
@@ -63,13 +70,17 @@ final class SamplerViewModel: ObservableObject {
         self.preferencesStore = preferencesStore
         self.audioPlayback = audioPlayback
         recentCaptures = preferencesStore.sessionState.recentCaptures
+        soundboardPads = preferencesStore.sessionState.soundboardPads
         activeSlotCount = preferencesStore.sessionState.activeSlotCount ?? SamplerConstants.defaultActiveSlots
         volume = preferencesStore.preferences.samplerVolume
         storedCaptures = []
         loadedCaptureId = preferencesStore.sessionState.loadedCaptureId
         activeTab = preferencesStore.sessionState.activeTab
-        simpleishCategoryFilter = preferencesStore.sessionState.simpleishCategoryFilter ?? SimpleishCategoryFilter.all
+        storedCategoryFilter = preferencesStore.sessionState.storedCategoryFilter ?? StoredCategoryFilter.all
         syncRecentCapturesToActiveSlotCount()
+        if deduplicateSoundboardPads(preferredIndex: nil) {
+            persistSoundboardPads()
+        }
 
         audioPlayback.onPlaybackFinished = { [weak self] in
             Task { @MainActor in
@@ -102,6 +113,10 @@ final class SamplerViewModel: ObservableObject {
     func setThemeMode(_ mode: SamplerThemeMode) {
         preferencesStore.setThemeMode(mode)
         applyThemeAppearance()
+    }
+
+    func setAppTheme(_ appTheme: SamplerAppTheme) {
+        preferencesStore.setAppTheme(appTheme)
     }
 
     func applyThemeAppearance() {
@@ -139,19 +154,22 @@ final class SamplerViewModel: ObservableObject {
         case "stored":
             activeTab = "stored"
         case "simpleish":
-            activeTab = "simpleish"
+            activeTab = "stored"
+        case "soundboard":
+            activeTab = "soundboard"
         default:
             activeTab = "recent"
         }
         preferencesStore.sessionState.activeTab = activeTab
         preferencesStore.saveSessionState()
         reconcileSelection()
+        resizeWindowForCurrentTab()
         refreshStatusIfIdle()
     }
 
-    func setSimpleishCategoryFilter(_ filter: String) {
-        simpleishCategoryFilter = filter
-        preferencesStore.sessionState.simpleishCategoryFilter = filter
+    func setStoredCategoryFilter(_ filter: String) {
+        storedCategoryFilter = filter
+        preferencesStore.sessionState.storedCategoryFilter = filter
         preferencesStore.saveSessionState()
         reconcileSelection()
         refreshStatusIfIdle()
@@ -186,8 +204,8 @@ final class SamplerViewModel: ObservableObject {
             for index in storedCaptures.indices where storedCaptures[index].categoryId == id {
                 storedCaptures[index].categoryId = nil
             }
-            if simpleishCategoryFilter == id {
-                setSimpleishCategoryFilter(SimpleishCategoryFilter.all)
+            if storedCategoryFilter == id {
+                setStoredCategoryFilter(StoredCategoryFilter.all)
             }
             reconcileSelection()
             setStatus("Deleted category.")
@@ -233,6 +251,16 @@ final class SamplerViewModel: ObservableObject {
     }
 
     func captureButtonTapped(slot: Int? = nil) {
+        if activeTab == "soundboard" {
+            let padIndex = slot.map { $0 - 1 } ?? soundboardTargetPadIndex()
+            guard let padIndex else {
+                setStatus("All sound board pads are full.", isError: true)
+                return
+            }
+            performCapture(targetSlotIndex: nil, soundboardPadIndex: padIndex)
+            return
+        }
+
         if let slot {
             targetSlotIndex = slot - 1
         } else {
@@ -252,9 +280,15 @@ final class SamplerViewModel: ObservableObject {
 
     func playSelectedCapture() {
         guard let capture = selectedCapture() else {
-            let message = (activeTab == "stored" || activeTab == "simpleish")
-                ? "No stored sample is selected yet."
-                : "No sampler slot is selected yet."
+            let message: String
+            switch activeTab {
+            case "stored":
+                message = "No stored sample is selected yet."
+            case "soundboard":
+                message = "No sound board pad is selected yet."
+            default:
+                message = "No sampler slot is selected yet."
+            }
             setStatus(message, isError: true)
             return
         }
@@ -339,6 +373,46 @@ final class SamplerViewModel: ObservableObject {
         persistRecentCaptures()
         reconcileSelection()
         refreshStatusIfIdle()
+    }
+
+    func activeSlotDragPayload(for index: Int) -> ActiveSlotDragPayload? {
+        guard index >= 0, index < activeSlotCount else { return nil }
+        return ActiveSlotDragPayload(
+            slotIndex: index,
+            captureId: recentCaptures[index]?.id
+        )
+    }
+
+    func soundboardPadDragPayload(for index: Int) -> SoundboardPadDragPayload? {
+        guard index >= 0, index < soundboardPads.count, let capture = soundboardPads[index] else { return nil }
+        return SoundboardPadDragPayload(
+            padIndex: index,
+            captureId: capture.id
+        )
+    }
+
+    func assignActiveCaptureToSoundboard(from sourceIndex: Int) {
+        guard let padIndex = soundboardTargetPadIndex() else {
+            setStatus("All sound board pads are full.", isError: true)
+            return
+        }
+        assignActiveCaptureToSoundboard(from: sourceIndex, padIndex: padIndex)
+    }
+
+    func assignActiveCaptureToSoundboard(from sourceIndex: Int, padIndex: Int) {
+        guard let capture = activeCapture(at: sourceIndex) else {
+            setStatus("Drag a filled Active slot onto a sound board pad.", isError: true)
+            return
+        }
+        assignCaptureToSoundboard(capture, padIndex: padIndex)
+    }
+
+    func storeActiveCapture(from sourceIndex: Int) {
+        storeActiveCapture(from: sourceIndex, categoryDrop: .preserveExisting)
+    }
+
+    func storeActiveCapture(from sourceIndex: Int, categoryId: String?) {
+        storeActiveCapture(from: sourceIndex, categoryDrop: .assign(categoryId))
     }
 
     func deleteActiveSlot(at index: Int) {
@@ -434,6 +508,13 @@ final class SamplerViewModel: ObservableObject {
             }
         }
 
+        for index in soundboardPads.indices {
+            if soundboardPads[index]?.id == id {
+                soundboardPads[index]?.displayName = displayName
+                soundboardPads[index]?.hasCustomDisplayName = hasCustomDisplayName
+            }
+        }
+
         if let storedIndex = storedCaptures.firstIndex(where: { $0.id == id }) {
             do {
                 guard let updated = try StoredLibraryService.renameStoredCapture(
@@ -459,7 +540,111 @@ final class SamplerViewModel: ObservableObject {
         }
 
         persistRecentCaptures()
+        persistSoundboardPads()
         refreshStatusIfIdle()
+    }
+
+    func playSoundboardPad(at index: Int) {
+        guard index >= 0, index < soundboardPads.count, let capture = soundboardPads[index] else {
+            setStatus("No clip in sound board pad \(index + 1).", isError: true)
+            return
+        }
+        selectedSoundboardPadIndex = index
+        selectCapture(id: capture.id, source: "soundboard")
+        playCapture(capture, source: "soundboard")
+    }
+
+    func clearSoundboardPad(at index: Int) {
+        guard index >= 0, index < soundboardPads.count else { return }
+        let removed = soundboardPads[index]
+        soundboardPads[index] = nil
+        persistSoundboardPads()
+
+        if let removed {
+            if removed.id == loadedCaptureId {
+                audioPlayback.stop(updateStatus: false)
+                loadedCaptureId = ""
+                loadedCapture = nil
+                preferencesStore.sessionState.loadedCaptureId = ""
+                preferencesStore.saveSessionState()
+            }
+            if removed.id == selectedCaptureId, selectedCaptureSource == "soundboard" {
+                selectedCaptureId = ""
+            }
+        }
+
+        reconcileSelection()
+        refreshStatusIfIdle()
+    }
+
+    func moveSoundboardPad(from sourceIndex: Int, to destinationIndex: Int) {
+        guard sourceIndex != destinationIndex,
+              sourceIndex >= 0, sourceIndex < soundboardPads.count,
+              destinationIndex >= 0, destinationIndex < soundboardPads.count,
+              let sourceCapture = soundboardPads[sourceIndex] else {
+            return
+        }
+
+        let destinationCapture = soundboardPads[destinationIndex]
+        soundboardPads[sourceIndex] = destinationCapture
+        soundboardPads[destinationIndex] = sourceCapture
+        _ = deduplicateSoundboardPads(preferredIndex: destinationIndex)
+        persistSoundboardPads()
+
+        syncSelectedSoundboardPadIndexAfterMove(from: sourceIndex, to: destinationIndex)
+        reconcileSelection()
+        refreshStatusIfIdle()
+
+        if destinationCapture == nil {
+            setStatus("Moved pad \(sourceIndex + 1) to pad \(destinationIndex + 1).")
+        } else {
+            setStatus("Swapped pad \(sourceIndex + 1) with pad \(destinationIndex + 1).")
+        }
+    }
+
+    func loadDroppedFileOnSoundboard(path: String, padIndex: Int) {
+        guard SamplerConstants.isSupportedAudioFile(path) else {
+            setStatus("Drop a supported audio file such as WAV, AIFF, CAF, MP3, M4A, AAC, OGG, or FLAC.", isError: true)
+            return
+        }
+        guard FileManager.default.fileExists(atPath: path) else {
+            setStatus("The dropped sampler file was not found.", isError: true)
+            return
+        }
+        guard padIndex >= 0, padIndex < soundboardPads.count else { return }
+
+        let fileName = URL(fileURLWithPath: path).lastPathComponent
+        let baseName = (fileName as NSString).deletingPathExtension
+        let existing = soundboardPads[padIndex]
+        let capture = SamplerCapture(
+            id: existing?.id ?? "sampler-soundboard-\(nextSoundboardSequence)",
+            filePath: path,
+            fileName: fileName,
+            displayName: baseName,
+            defaultDisplayName: baseName,
+            hasCustomDisplayName: false,
+            capturedAt: Date().timeIntervalSince1970 * 1000,
+            saved: isStoredIdentity(path: path)
+        )
+        if existing == nil {
+            nextSoundboardSequence += 1
+        }
+
+        soundboardPads[padIndex] = capture
+        _ = deduplicateSoundboardPads(preferredIndex: padIndex)
+        persistSoundboardPads()
+        selectCapture(id: capture.id, source: "soundboard")
+
+        do {
+            try audioPlayback.load(capture: capture)
+            loadedCaptureId = capture.id
+            loadedCapture = capture
+            preferencesStore.sessionState.loadedCaptureId = loadedCaptureId
+            preferencesStore.saveSessionState()
+            setStatus("Loaded \(capture.slotLabel) on pad \(padIndex + 1).")
+        } catch {
+            setStatus(error.localizedDescription, isError: true)
+        }
     }
 
     func loadDroppedFile(path: String, slotIndex: Int) {
@@ -665,7 +850,7 @@ final class SamplerViewModel: ObservableObject {
         setStatus("Updated Active slots from AudioSuite capture.")
     }
 
-    private func performCapture(targetSlotIndex: Int?) {
+    private func performCapture(targetSlotIndex: Int?, soundboardPadIndex: Int? = nil) {
         guard !isCaptureInProgress else { return }
 
         captureTask?.cancel()
@@ -675,6 +860,8 @@ final class SamplerViewModel: ObservableObject {
         let startingRecentCaptures = recentCaptures
         let startingStoredCaptures = storedCaptures
         let startingSequence = nextRecentSequence
+        let startingSoundboardPads = soundboardPads
+        let startingSoundboardSequence = nextSoundboardSequence
 
         captureTask = Task {
             defer {
@@ -685,14 +872,16 @@ final class SamplerViewModel: ObservableObject {
             }
 
             do {
-                var slots = startingRecentCaptures
+                let usesSoundboard = soundboardPadIndex != nil
+                var slots: [SamplerCapture?] = usesSoundboard ? [nil] : startingRecentCaptures
                 var sequence = startingSequence
+                let captureTargetSlot = usesSoundboard ? 0 : targetSlotIndex
                 let placed = try await CaptureTimeout.run(
                     seconds: PTSLCaptureConstants.captureMaxDurationSeconds,
                     message: "Capture timed out after \(Int(PTSLCaptureConstants.captureMaxDurationSeconds)) seconds. Make sure Pro Tools is running with a clip or edit range selected."
                 ) {
                     try await ProToolsCaptureService.shared.captureAndPlace(
-                        targetSlotIndex: targetSlotIndex,
+                        targetSlotIndex: captureTargetSlot,
                         recentCaptures: &slots,
                         nextSequence: &sequence,
                         storedCaptures: startingStoredCaptures,
@@ -707,11 +896,39 @@ final class SamplerViewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
 
                 await MainActor.run {
+                    if let soundboardPadIndex {
+                        var capture = placed.capture
+                        let existing = startingSoundboardPads[soundboardPadIndex]
+                        capture.id = existing?.id ?? "sampler-soundboard-\(startingSoundboardSequence)"
+                        if existing == nil {
+                            nextSoundboardSequence = startingSoundboardSequence + 1
+                        }
+                        soundboardPads = startingSoundboardPads
+                        soundboardPads[soundboardPadIndex] = capture
+                        _ = deduplicateSoundboardPads(preferredIndex: soundboardPadIndex)
+                        persistSoundboardPads()
+                        selectCapture(id: capture.id, source: "soundboard")
+
+                        do {
+                            try audioPlayback.load(capture: capture)
+                            loadedCaptureId = capture.id
+                            loadedCapture = capture
+                            preferencesStore.sessionState.loadedCaptureId = loadedCaptureId
+                            preferencesStore.saveSessionState()
+                            setStatus("Captured \(capture.slotLabel) on pad \(soundboardPadIndex + 1).")
+                        } catch {
+                            setStatus(error.localizedDescription, isError: true)
+                        }
+                        return
+                    }
+
                     recentCaptures = slots
                     nextRecentSequence = sequence
                     persistRecentCaptures()
                     selectCapture(id: placed.capture.id, source: "recent")
                 }
+
+                guard soundboardPadIndex == nil else { return }
 
                 try await MainActor.run {
                     try audioPlayback.load(capture: placed.capture)
@@ -739,6 +956,11 @@ final class SamplerViewModel: ObservableObject {
         }
 
         if let capture = storedCaptures.first(where: { $0.id == loadedCaptureId }) {
+            rehydrateCaptureIfFileExists(capture)
+            return
+        }
+
+        if let capture = soundboardPads.compactMap({ $0 }).first(where: { $0.id == loadedCaptureId }) {
             rehydrateCaptureIfFileExists(capture)
             return
         }
@@ -771,14 +993,18 @@ final class SamplerViewModel: ObservableObject {
         let metadata = StoredLibraryService.loadLibrary()
         storedCaptures = metadata.captures
         storedCategories = metadata.categories
-        if simpleishCategoryFilter != SimpleishCategoryFilter.all,
-           simpleishCategoryFilter != SimpleishCategoryFilter.uncategorized,
-           !storedCategories.contains(where: { $0.id == simpleishCategoryFilter }) {
-            simpleishCategoryFilter = SimpleishCategoryFilter.all
-            preferencesStore.sessionState.simpleishCategoryFilter = simpleishCategoryFilter
+        if storedCategoryFilter != StoredCategoryFilter.all,
+           storedCategoryFilter != StoredCategoryFilter.uncategorized,
+           !storedCategories.contains(where: { $0.id == storedCategoryFilter }) {
+            storedCategoryFilter = StoredCategoryFilter.all
+            preferencesStore.sessionState.storedCategoryFilter = storedCategoryFilter
             preferencesStore.saveSessionState()
         }
-        nextRecentSequence = max(nextRecentSequence, recentCaptures.compactMap { $0?.id }.compactMap { parseSequence($0) }.max() ?? 0) + 1
+        nextRecentSequence = max(nextRecentSequence, recentCaptures.compactMap { $0?.id }.compactMap { parseSequence($0, prefix: "sampler-capture-") }.max() ?? 0) + 1
+        nextSoundboardSequence = max(
+            nextSoundboardSequence,
+            soundboardPads.compactMap { $0?.id }.compactMap { parseSequence($0, prefix: "sampler-soundboard-") }.max() ?? 0
+        ) + 1
 
         for index in recentCaptures.indices {
             if let capture = recentCaptures[index] {
@@ -787,11 +1013,143 @@ final class SamplerViewModel: ObservableObject {
         }
     }
 
-    private func parseSequence(_ id: String) -> Int? {
-        let pattern = #"sampler-capture-(\d+)"#
-        guard let match = id.range(of: pattern, options: .regularExpression) else { return nil }
-        let digits = id[match].filter(\.isNumber)
-        return Int(digits)
+    private func parseSequence(_ id: String, prefix: String) -> Int? {
+        guard id.hasPrefix(prefix) else { return nil }
+        let suffix = id.dropFirst(prefix.count)
+        return Int(suffix)
+    }
+
+    private func activeCapture(at index: Int) -> SamplerCapture? {
+        guard index >= 0, index < activeSlotCount else { return nil }
+        return recentCaptures[index]
+    }
+
+    private func assignCaptureToSoundboard(_ sourceCapture: SamplerCapture, padIndex: Int) {
+        guard padIndex >= 0, padIndex < soundboardPads.count else { return }
+
+        let existing = soundboardPads[padIndex]
+        var assigned = sourceCapture
+        assigned.id = existing?.id ?? "sampler-soundboard-\(nextSoundboardSequence)"
+        if existing == nil {
+            nextSoundboardSequence += 1
+        }
+
+        soundboardPads[padIndex] = assigned
+        _ = deduplicateSoundboardPads(preferredIndex: padIndex)
+        persistSoundboardPads()
+        selectedSoundboardPadIndex = padIndex
+        selectCapture(id: assigned.id, source: "soundboard")
+
+        do {
+            try audioPlayback.load(capture: assigned)
+            loadedCaptureId = assigned.id
+            loadedCapture = assigned
+            preferencesStore.sessionState.loadedCaptureId = loadedCaptureId
+            preferencesStore.saveSessionState()
+            setStatus("Loaded \(assigned.slotLabel) on pad \(padIndex + 1).")
+        } catch {
+            setStatus(error.localizedDescription, isError: true)
+        }
+    }
+
+    private func storeActiveCapture(from sourceIndex: Int, categoryDrop: StoredCategoryDrop) {
+        guard let capture = activeCapture(at: sourceIndex) else {
+            setStatus("Drag a filled Active slot into Stored to keep it.", isError: true)
+            return
+        }
+
+        do {
+            let stored: SamplerCapture
+            if recentCaptures[sourceIndex]?.saved != true {
+                recentCaptures[sourceIndex]?.saved = true
+                persistRecentCaptures()
+            }
+            if let existing = storedCaptures.first(where: { $0.sourceIdentity == capture.sourceIdentity }) {
+                stored = existing
+            } else {
+                let created = try StoredLibraryService.storeCapture(from: capture)
+                storedCaptures.append(created)
+                stored = created
+            }
+
+            selectCapture(id: stored.id, source: "stored")
+
+            switch categoryDrop {
+            case .preserveExisting:
+                setStatus("Stored \(stored.slotLabel).")
+            case .assign(let categoryId):
+                setCaptureCategory(captureId: stored.id, categoryId: categoryId)
+            }
+        } catch {
+            setStatus(error.localizedDescription, isError: true)
+        }
+    }
+
+    private func persistSoundboardPads() {
+        preferencesStore.sessionState.soundboardPads = soundboardPads
+        preferencesStore.saveSessionState()
+    }
+
+    private func deduplicateSoundboardPads(preferredIndex: Int?) -> Bool {
+        var keptIndicesByID: [String: Int] = [:]
+        var duplicateIndices = Set<Int>()
+
+        if let preferredIndex,
+           preferredIndex >= 0,
+           preferredIndex < soundboardPads.count,
+           let preferredID = soundboardPads[preferredIndex]?.id {
+            keptIndicesByID[preferredID] = preferredIndex
+        }
+
+        for index in soundboardPads.indices {
+            guard let captureID = soundboardPads[index]?.id else { continue }
+
+            if let keptIndex = keptIndicesByID[captureID] {
+                if keptIndex == index {
+                    continue
+                }
+
+                if preferredIndex == index {
+                    duplicateIndices.insert(keptIndex)
+                    keptIndicesByID[captureID] = index
+                } else {
+                    duplicateIndices.insert(index)
+                }
+                continue
+            }
+
+            keptIndicesByID[captureID] = index
+        }
+
+        guard !duplicateIndices.isEmpty else { return false }
+
+        for index in duplicateIndices {
+            soundboardPads[index] = nil
+        }
+
+        return true
+    }
+
+    func selectSoundboardPad(at index: Int) {
+        guard index >= 0, index < soundboardPads.count else { return }
+        selectedSoundboardPadIndex = index
+        if let capture = soundboardPads[index] {
+            selectCapture(id: capture.id, source: "soundboard")
+        } else {
+            selectedCaptureId = ""
+            selectedCaptureSource = "soundboard"
+        }
+    }
+
+    private func soundboardTargetPadIndex() -> Int? {
+        if selectedSoundboardPadIndex >= 0, selectedSoundboardPadIndex < soundboardPads.count {
+            return selectedSoundboardPadIndex
+        }
+        if selectedCaptureSource == "soundboard",
+           let selectedIndex = soundboardPads.firstIndex(where: { $0?.id == selectedCaptureId }) {
+            return selectedIndex
+        }
+        return soundboardPads.firstIndex(where: { $0 == nil })
     }
 
     private func persistRecentCaptures() {
@@ -818,25 +1176,29 @@ final class SamplerViewModel: ObservableObject {
     }
 
     func resizeWindowForActiveSlots() {
+        resizeWindowForCurrentTab()
+    }
+
+    func resizeWindowForCurrentTab() {
         guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey }) else {
             return
         }
 
-        let targetHeight = SamplerConstants.contentHeight(
-            forActiveSlotCount: activeSlotCount,
-            showsSlotControls: showsSlotCountControls
-        )
+        let targetHeight = preferredContentHeight()
+        let currentContentHeight = window.contentRect(forFrameRect: window.frame).height
+        guard currentContentHeight < targetHeight else { return }
         var frame = window.frame
-        let heightDelta = targetHeight - frame.size.height
+        let heightDelta = targetHeight - currentContentHeight
         frame.origin.y -= heightDelta
-        frame.size.height = targetHeight
+        frame.size.height += heightDelta
         window.setFrame(frame, display: true, animate: true)
         preferencesStore.updateWindowFrame(window.frame)
     }
 
     func preferredContentHeight() -> CGFloat {
         SamplerConstants.contentHeight(
-            forActiveSlotCount: activeSlotCount,
+            forActiveTab: activeTab,
+            activeSlotCount: activeSlotCount,
             showsSlotControls: showsSlotCountControls
         )
     }
@@ -845,6 +1207,9 @@ final class SamplerViewModel: ObservableObject {
         if selectedCaptureSource == "stored" {
             return storedCaptures.first { $0.id == selectedCaptureId }
         }
+        if selectedCaptureSource == "soundboard" {
+            return soundboardPads.compactMap { $0 }.first { $0.id == selectedCaptureId }
+        }
         if let index = recentCaptures.firstIndex(where: { $0?.id == selectedCaptureId }) {
             return recentCaptures[index]
         }
@@ -852,8 +1217,8 @@ final class SamplerViewModel: ObservableObject {
     }
 
     private func reconcileSelection() {
-        if activeTab == "stored" || activeTab == "simpleish" {
-            let visibleCaptures = activeTab == "simpleish" ? simpleishCaptures : storedCaptures
+        if activeTab == "stored" {
+            let visibleCaptures = filteredStoredCaptures
             if !visibleCaptures.contains(where: { $0.id == selectedCaptureId }) {
                 selectedCaptureId = visibleCaptures.first?.id ?? ""
             }
@@ -861,9 +1226,33 @@ final class SamplerViewModel: ObservableObject {
             return
         }
 
+        if activeTab == "soundboard" {
+            if !soundboardPads.contains(where: { $0?.id == selectedCaptureId }) {
+                selectedCaptureId = soundboardPads.compactMap { $0 }.first?.id ?? ""
+            }
+            selectedCaptureSource = "soundboard"
+            return
+        }
+
         if !recentCaptures.contains(where: { $0?.id == selectedCaptureId }) {
             selectedCaptureId = recentCaptures.compactMap { $0 }.first?.id ?? ""
             selectedCaptureSource = "recent"
+        }
+    }
+
+    private func syncSelectedSoundboardPadIndexAfterMove(from sourceIndex: Int, to destinationIndex: Int) {
+        if selectedCaptureSource == "soundboard", !selectedCaptureId.isEmpty {
+            selectedSoundboardPadIndex = soundboardPads.firstIndex(where: { $0?.id == selectedCaptureId }) ?? -1
+            return
+        }
+
+        if selectedSoundboardPadIndex == sourceIndex {
+            selectedSoundboardPadIndex = destinationIndex
+            return
+        }
+
+        if selectedSoundboardPadIndex == destinationIndex, soundboardPads[sourceIndex] != nil {
+            selectedSoundboardPadIndex = sourceIndex
         }
     }
 
@@ -934,5 +1323,10 @@ final class SamplerViewModel: ObservableObject {
             49: "Space", 36: "Enter", 51: "Delete", 53: "Escape", 48: "Tab"
         ]
         return map[event.keyCode] ?? ""
+    }
+
+    private enum StoredCategoryDrop {
+        case preserveExisting
+        case assign(String?)
     }
 }

@@ -35,6 +35,11 @@ final class PreferencesStore: ObservableObject {
         savePreferences()
     }
 
+    func setAppTheme(_ appTheme: SamplerAppTheme) {
+        preferences.appTheme = appTheme
+        savePreferences()
+    }
+
     func setThemeMode(_ mode: SamplerThemeMode) {
         preferences.themeMode = mode
         savePreferences()
@@ -94,6 +99,9 @@ final class PreferencesStore: ObservableObject {
 
     private static func normalizeSessionState(_ state: SamplerSessionState) -> SamplerSessionState {
         var normalized = state
+        if normalized.activeTab == "simpleish" {
+            normalized.activeTab = "stored"
+        }
         let inferredCount = max(
             SamplerConstants.defaultActiveSlots,
             normalized.activeSlotCount ?? SamplerConstants.defaultActiveSlots,
@@ -108,6 +116,14 @@ final class PreferencesStore: ObservableObject {
         if normalized.recentCaptures.count > clampedCount {
             normalized.recentCaptures = Array(normalized.recentCaptures.prefix(clampedCount))
         }
+
+        while normalized.soundboardPads.count < SamplerConstants.soundboardPadCount {
+            normalized.soundboardPads.append(nil)
+        }
+        if normalized.soundboardPads.count > SamplerConstants.soundboardPadCount {
+            normalized.soundboardPads = Array(normalized.soundboardPads.prefix(SamplerConstants.soundboardPadCount))
+        }
+
         return normalized
     }
 }

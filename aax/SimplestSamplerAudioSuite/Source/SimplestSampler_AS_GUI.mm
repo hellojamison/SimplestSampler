@@ -118,8 +118,13 @@ const SimplestSampler_AS_Parameters* SamplerParameters(const AAX_IEffectParamete
 
 @interface SimplestSamplerPanelView : NSView
 @property(nonatomic, assign) SimplestSampler_AS_GUI* gui;
+@property(nonatomic, assign, getter=isDetachedFromGUI) BOOL detachedFromGUI;
+@property(nonatomic, assign, getter=isReadyForRefresh) BOOL readyForRefresh;
+@property(nonatomic, assign) uint64_t refreshEpoch;
 @property(nonatomic, strong) NSPopUpButton* activeSlotsPopup;
-@property(nonatomic, strong) NSMutableArray<SimplestSamplerSlotRowView*>* slotRows;
+@property(nonatomic, strong) NSArray<SimplestSamplerSlotRowView*>* slotRowsSnapshot;
+- (void)detachFromGUI;
+- (void)refreshOnMainThread;
 @end
 
 @implementation SimplestSamplerPanelView
@@ -128,7 +133,10 @@ const SimplestSampler_AS_Parameters* SamplerParameters(const AAX_IEffectParamete
     self = [super initWithFrame:NSMakeRect(0, 0, kPanelWidth, kPanelHeight)];
     if (self) {
         _gui = gui;
-        _slotRows = [NSMutableArray array];
+        _detachedFromGUI = NO;
+        _readyForRefresh = NO;
+        _refreshEpoch = 0;
+        NSMutableArray<SimplestSamplerSlotRowView*>* slotRows = [NSMutableArray array];
         self.wantsLayer = YES;
         self.layer.backgroundColor = ThemeBackground().CGColor;
 
@@ -164,9 +172,10 @@ const SimplestSampler_AS_Parameters* SamplerParameters(const AAX_IEffectParamete
             row.action = @selector(slotRowClicked:);
             row.tag = slot;
             [self addSubview:row];
-            [_slotRows addObject:row];
+            [slotRows addObject:row];
             y += kRowHeight + 6.0;
         }
+        _slotRowsSnapshot = [slotRows copy];
 
         NSTextField* hint = [self makeLabel:@"Use Capture in AudioSuite to write the selected slot."
                                        size:10
@@ -174,8 +183,28 @@ const SimplestSampler_AS_Parameters* SamplerParameters(const AAX_IEffectParamete
         hint.textColor = ThemeMuted();
         hint.frame = NSMakeRect(kPadding, kPanelHeight - 28, contentWidth, 16);
         [self addSubview:hint];
+
+        _readyForRefresh = YES;
     }
     return self;
+}
+
+- (void)dealloc {
+    ++_refreshEpoch;
+    _readyForRefresh = NO;
+    _gui = nullptr;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refresh) object:nil];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refreshOnMainThread) object:nil];
+    [super dealloc];
+}
+
+- (void)detachFromGUI {
+    ++_refreshEpoch;
+    _readyForRefresh = NO;
+    _detachedFromGUI = YES;
+    _gui = nullptr;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refresh) object:nil];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refreshOnMainThread) object:nil];
 }
 
 - (NSTextField*)makeLabel:(NSString*)text size:(CGFloat)size weight:(NSFontWeight)weight {
@@ -196,7 +225,7 @@ const SimplestSampler_AS_Parameters* SamplerParameters(const AAX_IEffectParamete
 
 - (void)activeSlotsChanged:(id)sender {
     (void)sender;
-    if (!_gui) {
+    if (self.isDetachedFromGUI || !_gui) {
         return;
     }
     const NSInteger count = [_activeSlotsPopup indexOfSelectedItem] + kSimplestSamplerDefaultActiveSlots;
@@ -205,7 +234,7 @@ const SimplestSampler_AS_Parameters* SamplerParameters(const AAX_IEffectParamete
 }
 
 - (void)slotRowClicked:(SimplestSamplerSlotRowView*)sender {
-    if (!_gui || !sender) {
+    if (self.isDetachedFromGUI || !_gui || !sender) {
         return;
     }
     _gui->SetTargetSlot(static_cast<int32_t>(sender.tag));
@@ -213,18 +242,46 @@ const SimplestSampler_AS_Parameters* SamplerParameters(const AAX_IEffectParamete
 }
 
 - (void)refresh {
-    if (!_gui) {
+    if (!self.isReadyForRefresh || self.isDetachedFromGUI || !_gui || self.superview == nil) {
         return;
     }
-    const int32_t activeCount = _gui->ActiveSlotCount();
-    const int32_t targetSlot = _gui->TargetSlot();
-    [_activeSlotsPopup selectItemAtIndex:activeCount - kSimplestSamplerDefaultActiveSlots];
+    if (![NSThread isMainThread]) {
+        if (SimplestSampler_AS_GUI* gui = _gui) {
+            gui->RefreshPanel();
+        }
+        return;
+    }
+    [self refreshOnMainThread];
+}
 
-    auto* samplerParameters = SamplerParameters(_gui->GetEffectParameters());
+- (void)refreshOnMainThread {
+    if (!self.isReadyForRefresh || self.isDetachedFromGUI || !_gui || self.superview == nil) {
+        return;
+    }
 
-    for (SimplestSamplerSlotRowView* row in _slotRows) {
+    NSPopUpButton* const popup = _activeSlotsPopup;
+    NSArray<SimplestSamplerSlotRowView*>* const rows = _slotRowsSnapshot;
+    SimplestSampler_AS_GUI* const gui = _gui;
+
+    if (!popup || rows.count == 0 || !gui) {
+        return;
+    }
+
+    const int32_t activeCount = gui->ActiveSlotCount();
+    const int32_t targetSlot = gui->TargetSlot();
+    const NSInteger popupIndex = activeCount - kSimplestSamplerDefaultActiveSlots;
+    if (popupIndex >= 0 && popupIndex < popup.numberOfItems) {
+        [popup selectItemAtIndex:popupIndex];
+    }
+
+    auto* samplerParameters = SamplerParameters(gui->GetEffectParameters());
+
+    for (SimplestSamplerSlotRowView* row in rows) {
+        if (!row || ![row isKindOfClass:[SimplestSamplerSlotRowView class]]) {
+            continue;
+        }
         const BOOL visible = row.slotNumber <= activeCount;
-        row.hidden = !visible;
+        [row setHidden:!visible];
         row.selected = (row.slotNumber == targetSlot);
 
         if (!visible || !samplerParameters) {
@@ -234,13 +291,13 @@ const SimplestSampler_AS_Parameters* SamplerParameters(const AAX_IEffectParamete
         const std::string label = samplerParameters->SlotDisplayLabel(static_cast<int>(row.slotNumber));
         const size_t pipe = label.find(" | Cap ");
         if (pipe == std::string::npos) {
-            row.titleText = [NSString stringWithUTF8String:label.c_str()];
+            row.titleText = [NSString stringWithUTF8String:label.c_str()] ?: @"Empty";
             row.detailText = @"";
         } else {
-            row.titleText = [NSString stringWithUTF8String:label.substr(0, pipe).c_str()];
-            row.detailText = [NSString stringWithUTF8String:label.substr(pipe + 3).c_str()];
+            row.titleText = [NSString stringWithUTF8String:label.substr(0, pipe).c_str()] ?: @"Empty";
+            row.detailText = [NSString stringWithUTF8String:label.substr(pipe + 3).c_str()] ?: @"";
         }
-        row.needsDisplay = YES;
+        [row setNeedsDisplay:YES];
     }
 }
 
@@ -250,16 +307,90 @@ AAX_CEffectGUI* AAX_CALLBACK SimplestSampler_AS_GUI::Create() {
     return new SimplestSampler_AS_GUI();
 }
 
+SimplestSamplerPanelView* SimplestSampler_AS_GUI::PanelView() const {
+    if (!mViewController) {
+        return nullptr;
+    }
+
+    NSView* const view = mViewController.view;
+    if (!view || ![view isKindOfClass:[SimplestSamplerPanelView class]]) {
+        return nullptr;
+    }
+
+    return (SimplestSamplerPanelView*)view;
+}
+
+SimplestSampler_AS_GUI::~SimplestSampler_AS_GUI() {
+    mPanelRefreshEnabled = false;
+    DetachPanelView();
+}
+
 void SimplestSampler_AS_GUI::CreateViewContents() {
-    mPanelView = [[SimplestSamplerPanelView alloc] initWithGUI:this];
+    SimplestSamplerPanelView* const panelView = [[SimplestSamplerPanelView alloc] initWithGUI:this];
     NSViewController* viewController = [[NSViewController alloc] init];
-    viewController.view = mPanelView;
+    viewController.view = panelView;
     SetViewController(viewController);
 }
 
 void SimplestSampler_AS_GUI::CreateViewContainer() {
+    mPanelRefreshEnabled = false;
+
+    if (!PanelView()) {
+        CreateViewContents();
+    }
+
     AAX_CEffectGUI_Cocoa::CreateViewContainer();
-    [mPanelView refresh];
+
+    if (SimplestSamplerPanelView* panelView = PanelView()) {
+        if (panelView.superview != nil) {
+            mPanelRefreshEnabled = true;
+            [panelView refresh];
+        }
+    }
+}
+
+void SimplestSampler_AS_GUI::DeleteViewContainer() {
+    mPanelRefreshEnabled = false;
+    if (SimplestSamplerPanelView* panelView = PanelView()) {
+        [NSObject cancelPreviousPerformRequestsWithTarget:panelView selector:@selector(refresh) object:nil];
+        [NSObject cancelPreviousPerformRequestsWithTarget:panelView selector:@selector(refreshOnMainThread) object:nil];
+    }
+    DetachPanelView();
+    AAX_CEffectGUI_Cocoa::DeleteViewContainer();
+}
+
+void SimplestSampler_AS_GUI::SchedulePanelRefresh() {
+    if (!mPanelRefreshEnabled || !GetViewContainer()) {
+        return;
+    }
+
+    SimplestSamplerPanelView* const panelView = PanelView();
+    if (!panelView || panelView.superview == nil || panelView.isDetachedFromGUI || !panelView.isReadyForRefresh) {
+        return;
+    }
+
+    const uint64_t panelEpoch = panelView.refreshEpoch;
+    [panelView retain];
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @autoreleasepool {
+            if (panelView.refreshEpoch != panelEpoch
+                || panelView.isDetachedFromGUI
+                || !panelView.isReadyForRefresh
+                || panelView.superview == nil) {
+                [panelView release];
+                return;
+            }
+            [panelView refreshOnMainThread];
+            [panelView release];
+        }
+    });
+}
+
+void SimplestSampler_AS_GUI::DetachPanelView() {
+    if (SimplestSamplerPanelView* panelView = PanelView()) {
+        [panelView detachFromGUI];
+    }
 }
 
 AAX_Result SimplestSampler_AS_GUI::GetViewSize(AAX_Point* oEffectViewSize) const {
@@ -293,14 +424,12 @@ AAX_Result SimplestSampler_AS_GUI::ParameterUpdated(AAX_CParamID iParameterID) {
 }
 
 AAX_Result SimplestSampler_AS_GUI::TimerWakeup() {
-    RefreshPanel();
+    SchedulePanelRefresh();
     return AAX_SUCCESS;
 }
 
 void SimplestSampler_AS_GUI::RefreshPanel() {
-    if (mPanelView) {
-        [mPanelView refresh];
-    }
+    SchedulePanelRefresh();
 }
 
 bool SimplestSampler_AS_GUI::SetTargetSlot(int32_t slot) {

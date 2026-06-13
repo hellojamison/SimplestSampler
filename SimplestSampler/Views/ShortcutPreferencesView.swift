@@ -1,20 +1,37 @@
 import SwiftUI
 
+private enum ShortcutPreferencesLayout {
+    static let sectionSpacing: CGFloat = 14
+    static let contentPadding: CGFloat = 18
+    static let windowMinWidth: CGFloat = 392
+    static let windowIdealWidth: CGFloat = 404
+    static let appearanceLabelWidth: CGFloat = 76
+    static let appearanceMenuWidth: CGFloat = 152
+    static let shortcutInfoWidth: CGFloat = 78
+    static let bindingMinWidth: CGFloat = 94
+    static let buttonGap: CGFloat = 6
+}
+
 struct ShortcutPreferencesView: View {
     @ObservedObject var viewModel: SamplerViewModel
     @Environment(\.samplerThemeColors) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: ShortcutPreferencesLayout.sectionSpacing) {
             header
             appearanceSection
             captureSection
             playSection
             footer
         }
-        .padding(20)
-        .frame(minWidth: 460, minHeight: 440)
-        .background(theme.backgroundGradient)
+        .padding(ShortcutPreferencesLayout.contentPadding)
+        .frame(
+            minWidth: ShortcutPreferencesLayout.windowMinWidth,
+            idealWidth: ShortcutPreferencesLayout.windowIdealWidth,
+            alignment: .topLeading
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .samplerWindowChrome()
         .background(KeyboardHandlerView(viewModel: viewModel))
     }
 
@@ -23,35 +40,43 @@ struct ShortcutPreferencesView: View {
             Text("Preferences")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(theme.text)
-            Text(captureHint)
-                .font(.system(size: 11))
-                .foregroundStyle(theme.muted)
         }
-    }
-
-    private var captureHint: String {
-        if viewModel.capturingShortcutId.isEmpty {
-            return "Click a shortcut to change it. Press Escape to cancel capture."
-        }
-        return "Listening for a shortcut. Press Escape to cancel."
     }
 
     private var appearanceSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Appearance")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(theme.muted)
 
-            Picker("Appearance", selection: Binding(
-                get: { viewModel.themeMode },
-                set: { viewModel.setThemeMode($0) }
-            )) {
-                ForEach(SamplerThemeMode.allCases) { mode in
-                    Text(mode.label).tag(mode)
+            VStack(alignment: .leading, spacing: 8) {
+                appearancePickerRow(title: "Theme pack") {
+                    Picker("Theme pack", selection: Binding(
+                        get: { viewModel.appTheme },
+                        set: { viewModel.setAppTheme($0) }
+                    )) {
+                        ForEach(SamplerAppTheme.allCases) { appTheme in
+                            Text(appTheme.label).tag(appTheme)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: ShortcutPreferencesLayout.appearanceMenuWidth, alignment: .leading)
+                }
+
+                appearancePickerRow(title: "Color scheme") {
+                    Picker("Color scheme", selection: Binding(
+                        get: { viewModel.themeMode },
+                        set: { viewModel.setThemeMode($0) }
+                    )) {
+                        ForEach(SamplerThemeMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
         }
     }
 
@@ -84,7 +109,7 @@ struct ShortcutPreferencesView: View {
     }
 
     private var footer: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 10) {
             Button("Reset All to Defaults") {
                 viewModel.resetAllShortcutsToDefaults()
             }
@@ -95,7 +120,22 @@ struct ShortcutPreferencesView: View {
             Text(viewModel.statusMessage)
                 .font(.system(size: 11))
                 .foregroundStyle(viewModel.statusIsError ? theme.error : theme.muted)
-                .lineLimit(1)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(2)
+                .frame(maxWidth: 160, alignment: .trailing)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func appearancePickerRow<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(theme.text)
+                .frame(width: ShortcutPreferencesLayout.appearanceLabelWidth, alignment: .leading)
+
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -116,36 +156,43 @@ private struct ShortcutPreferenceRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Text("Slot \(slotNumber)")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(theme.text)
-                .frame(width: SamplerTheme.Layout.labelWidth, alignment: .leading)
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Slot \(slotNumber)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.text)
 
-            Text(ShortcutDefinitions.preferencesActionLabel(for: shortcutID))
-                .font(.system(size: 12))
-                .foregroundStyle(theme.muted)
-                .frame(width: 88, alignment: .leading)
-
-            ShortcutBindingButton(viewModel: viewModel, shortcutID: shortcutID)
-                .frame(minWidth: 100, alignment: .leading)
-
-            Text("Default: \(viewModel.defaultShortcutLabel(for: shortcutID))")
-                .font(.system(size: 10))
-                .foregroundStyle(theme.muted)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button("Clear") {
-                viewModel.clearShortcut(shortcutID: shortcutID)
+                Text(ShortcutDefinitions.preferencesActionLabel(for: shortcutID))
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.muted)
             }
-            .buttonStyle(ShortcutPreferenceActionButtonStyle())
-            .disabled(!hasBinding)
+            .frame(width: ShortcutPreferencesLayout.shortcutInfoWidth, alignment: .leading)
 
-            Button("Reset") {
-                viewModel.resetShortcutToDefault(shortcutID: shortcutID)
+            VStack(alignment: .leading, spacing: 4) {
+                ShortcutBindingButton(viewModel: viewModel, shortcutID: shortcutID)
+                    .frame(minWidth: ShortcutPreferencesLayout.bindingMinWidth, alignment: .leading)
+
+                Text("Default: \(viewModel.defaultShortcutLabel(for: shortcutID))")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.muted)
+                    .lineLimit(1)
             }
-            .buttonStyle(ShortcutPreferenceActionButtonStyle())
-            .disabled(viewModel.isShortcutAtDefault(for: shortcutID))
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: ShortcutPreferencesLayout.buttonGap) {
+                Button("Clear") {
+                    viewModel.clearShortcut(shortcutID: shortcutID)
+                }
+                .buttonStyle(ShortcutPreferenceActionButtonStyle())
+                .disabled(!hasBinding)
+
+                Button("Reset") {
+                    viewModel.resetShortcutToDefault(shortcutID: shortcutID)
+                }
+                .buttonStyle(ShortcutPreferenceActionButtonStyle())
+                .disabled(viewModel.isShortcutAtDefault(for: shortcutID))
+            }
+            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, SamplerTheme.Layout.chipPaddingH)
         .padding(.vertical, SamplerTheme.Layout.chipPaddingV)

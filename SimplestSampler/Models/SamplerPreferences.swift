@@ -4,12 +4,14 @@ struct SamplerPreferences: Codable, Equatable {
     var samplerAudioOutputDeviceUID: String
     var samplerVolume: Int
     var shortcutBindings: [String: String]
+    var appTheme: SamplerAppTheme
     var themeMode: SamplerThemeMode
 
     static let defaults = SamplerPreferences(
         samplerAudioOutputDeviceUID: "",
         samplerVolume: SamplerConstants.defaultVolume,
         shortcutBindings: ShortcutDefinitions.defaultBindings,
+        appTheme: .default,
         themeMode: .system
     )
 
@@ -17,6 +19,7 @@ struct SamplerPreferences: Codable, Equatable {
         case samplerAudioOutputDeviceUID
         case samplerVolume
         case shortcutBindings
+        case appTheme
         case themeMode
         case darkModeEnabled
     }
@@ -25,11 +28,13 @@ struct SamplerPreferences: Codable, Equatable {
         samplerAudioOutputDeviceUID: String,
         samplerVolume: Int,
         shortcutBindings: [String: String],
+        appTheme: SamplerAppTheme,
         themeMode: SamplerThemeMode
     ) {
         self.samplerAudioOutputDeviceUID = samplerAudioOutputDeviceUID
         self.samplerVolume = samplerVolume
         self.shortcutBindings = shortcutBindings
+        self.appTheme = appTheme
         self.themeMode = themeMode
     }
 
@@ -38,6 +43,7 @@ struct SamplerPreferences: Codable, Equatable {
         samplerAudioOutputDeviceUID = try container.decode(String.self, forKey: .samplerAudioOutputDeviceUID)
         samplerVolume = try container.decode(Int.self, forKey: .samplerVolume)
         shortcutBindings = try container.decode([String: String].self, forKey: .shortcutBindings)
+        appTheme = try container.decodeIfPresent(SamplerAppTheme.self, forKey: .appTheme) ?? .default
 
         if let mode = try container.decodeIfPresent(SamplerThemeMode.self, forKey: .themeMode) {
             themeMode = mode
@@ -53,6 +59,7 @@ struct SamplerPreferences: Codable, Equatable {
         try container.encode(samplerAudioOutputDeviceUID, forKey: .samplerAudioOutputDeviceUID)
         try container.encode(samplerVolume, forKey: .samplerVolume)
         try container.encode(shortcutBindings, forKey: .shortcutBindings)
+        try container.encode(appTheme, forKey: .appTheme)
         try container.encode(themeMode, forKey: .themeMode)
     }
 }
